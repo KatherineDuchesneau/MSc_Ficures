@@ -33,7 +33,10 @@ This section contains all the necessary details about the R version and package 
   * `brms` package version `r packageVersion("brms")`
   * `loo` package version `r packageVersion("loo")`
   * `fitdistrplus` package version `r packageVersion("fitdistrplus")`
-  
+  * `mefa` package version `r packageVersion("mefa")`
+  * `library(devtools)` and `install_github("vqv/ggbiplot")` package version `r packageVersion("ggbiplot")`
+  * also requires [rtools](https://cran.r-project.org/bin/windows/Rtools/)
+    
 ### Load Packages and Functions
 
 ```{r Load_packages and functions, message=FALSE, warning=FALSE}
@@ -46,6 +49,8 @@ library(boot)
 library(brms)
 library(loo)
 library(fitdistrplus)
+library(mefa)
+library(ggbiplot)
 
 # theme_simple() a homemade function from the Colautti lab (2017) to standardize figures
 theme_simple <- function (base_size = 16, base_family = "") {
