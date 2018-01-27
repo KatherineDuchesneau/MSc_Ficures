@@ -1,0 +1,572 @@
+---
+title: "MSc Statistical overview"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+  html_notebook:
+    highlight: tango
+    theme: cerulean
+    toc: yes
+  word_document:
+    toc: yes
+---
+# Housekeeping
+### Preamble
+
+By Katherine Duchesneau 
+
+We are working with the roots Lesion and Mycorrhiza dataset for now. 
+
+### R details
+
+This section contains all the necessary details about the R version and package version used to run this Notebook.
+
+  * File creation date: `r Sys.Date()`
+  * `r R.version.string`
+  * `tidyverse` package version: `r packageVersion("tidyverse")`
+  * `lme4` package version `r packageVersion("lme4")`
+  * `MASS` package version `r packageVersion("MASS")`
+  * `MuMIn` package version `r packageVersion("MuMIn")`
+  * `emmeans` package version `r packageVersion("emmeans")`
+  * `boot` package version `r packageVersion("boot")`
+  * `brms` package version `r packageVersion("brms")`
+  * `loo` package version `r packageVersion("loo")`
+  * `fitdistrplus` package version `r packageVersion("fitdistrplus")`
+  
+### Load Packages and Functions
+
+```{r Load_packages and functions, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lme4)
+library(MASS)
+library(MuMIn)
+library(emmeans)
+library(boot)
+library(brms)
+library(loo)
+library(fitdistrplus)
+
+# theme_simple() a homemade function from the Colautti lab (2017) to standardize figures
+theme_simple <- function (base_size = 16, base_family = "") {
+  theme_classic(base_size = base_size, base_family = base_family) %+replace%
+    theme(
+      axis.text = element_text(colour = "black"),
+      axis.title.x = element_text(size=18),
+      axis.text.x = element_text(size=16, face= "italic"),
+      axis.title.y = element_text(size=18, angle=90), 
+      axis.text.y = element_text(size=16),
+      axis.ticks = element_blank(),
+      panel.background = element_rect(fill="white"),
+      panel.border = element_blank(),
+      plot.title=element_text(face="bold", size=24)
+      #      legend.position="none"
+    )
+}
+
+overdisp_fun <- function(model) {
+  ## number of variance parameters in an n-by-n variance-covariance matrix
+  vpars <- function(m) {
+    nrow(m) * (nrow(m) + 1)/2
+  }
+  # The next two lines calculate the residual degrees of freedom
+  model.df <- sum(sapply(VarCorr(model), vpars)) + length(fixef(model))
+  rdf <- nrow(model.frame(model)) - model.df
+  # extracts the Pearson residuals
+  rp <- residuals(model, type = "pearson")
+  Pearson.chisq <- sum(rp^2)
+  prat <- Pearson.chisq/rdf
+  # Generates a p-value. If less than 0.05, the data are overdispersed.
+  pval <- pchisq(Pearson.chisq, df = rdf, lower.tail = FALSE)
+  c(chisq = Pearson.chisq, ratio = prat, rdf = rdf, p = pval)
+}
+```
+
+# Introducing the Data 
+
+### Load/ Modify data: Co-occurence
+```{r Introduce co-occurence dataset, message=FALSE, warning=FALSE}
+mdata <- read.csv("Assessing_Oct_20.csv",stringsAsFactors=F)
+indiv <- mdata$CODE[!mdata$CODE==""]
+tdata <- mdata[grep("[0-9]+",mdata$Cross),]
+nrow(tdata)/length(indiv)
+# This is not the same because some individuals just had the totals not the cooccurence data
+indiv2 <- tdata$CODE[!tdata$CODE==""]
+nrow(tdata)/length(indiv2)
+indiv2 <- data.frame(indiv2)
+indiv2 <- mefa:::rep.data.frame(indiv2,each=100)
+fdata <- cbind(indiv2,tdata)
+fdata <- fdata[,-c(2,3,4,9,14,17,18)]
+
+# Cleaning up the occurence data
+fdata[is.na(fdata)] <- 0
+fdata$Lesion<-rowSums(fdata[,2:4])
+fdata[fdata$Lesion>1,]
+fdata$Mycorrhiza<-rowSums(fdata[,6:8])
+fdata[fdata$Mycorrhiza>1,]
+fdata <- fdata[,-c(2:4,6:8)]
+
+#### Checking data for problems ####
+
+summary(fdata)
+fdata$None.Path <- as.integer(fdata$None.Path)
+fdata$None.Myc <- as.integer(fdata$None.Myc)
+fdata[is.na(fdata)] <- 0
+
+
+sherb <- fdata$Herbivory+fdata$None.Herb
+fdata[sherb!=1,]
+fdata[sherb!=1,"None.Herb"]<-1
+
+# Are all the sums equal to 100 for herb? 
+dframeHerb <- data.frame(counter=NA, Indiv2=NA,Sum=NA)
+c <- 1
+for (i in unique(fdata$indiv2)){
+  dframeHerb[c,] <- NA
+  subdata <- fdata[fdata$indiv2==i,]
+  dframeHerb$counter[c] <- c
+  dframeHerb$Indiv2[c] <- i
+  dframeHerb$Sum[c] <- sum(subdata[,"Herbivory"]+subdata[,"None.Herb"])
+  subdata <- NA
+  c <- c + 1
+}
+dframeHerb[dframeHerb$Sum!=100,]
+
+
+# Are all the sums equal to 100 for Mycorrhiza? 
+dframeMyc <- data.frame(counter=NA, Indiv2=NA,Sum=NA)
+c <- 1
+for (i in unique(fdata$indiv2)){
+  dframeMyc[c,] <- NA
+  subdata <- fdata[fdata$indiv2==i,]
+  dframeMyc$counter[c] <- c
+  dframeMyc$Indiv2[c] <- i
+  dframeMyc$Sum[c] <- sum(subdata[,"Mycorrhiza"]+subdata[,"None.Myc"])
+  subdata <- NA
+  c <- c + 1
+}
+dframeMyc[dframeMyc$Sum!=100,]
+
+
+# Are all the sums equal to 100 for Lesions? 
+dframeLesion <- data.frame(counter=NA, Indiv2=NA,Sum=NA)
+c <- 1
+for (i in unique(fdata$indiv2)){
+  dframeLesion[c,] <- NA
+  subdata <- fdata[fdata$indiv2==i,]
+  dframeLesion$counter[c] <- c
+  dframeLesion$Indiv2[c] <- i
+  dframeLesion$Sum[c] <- sum(subdata[,"Lesion"]+subdata[,"None.Path"])
+  subdata <- NA
+  c <- c + 1
+}
+dframeLesion[dframeLesion$Sum!=100,]
+
+
+# Separating "Individual" into: pop,location,species columns 
+fdata$pop <- gsub("^([0-9]+)[I,O][A-Z]+.*","\\1",fdata$indiv)
+fdata$location <- gsub("^[0-9]+([I,O])[A-Z]+.*","\\1",fdata$indiv)
+fdata$species <- sub("^[0-9]+[I,O]([A-Z]+).*","\\1",fdata$indiv)
+fdata$location <- as.factor(fdata$location)
+fdata$species <- as.factor(fdata$species)
+fdata$pop <- as.factor(fdata$pop)
+fdata$indiv2 <- as.character(fdata$indiv2)
+summary(fdata)
+fdata %>% drop_na()->fdata
+
+fdata$None.Myc <- as.factor(fdata$None.Myc)
+fdata$Herbivory <- as.factor(fdata$Herbivory)
+fdata$Mycorrhiza <- as.factor(fdata$Mycorrhiza)
+fdata$Lesion <- as.factor(fdata$Lesion)
+fdata$None.Herb <- as.factor(fdata$None.Herb)
+fdata$None.Path <- as.factor(fdata$None.Path)
+summary(fdata)
+
+#### Gather ####
+length(unique(fdata$indiv2))
+Cross<- data.frame(c(rep(1:100, times=225)))
+fdatac <- cbind(fdata,Cross)
+colnames(fdatac)[11]<-"cross"
+fdatac %>% gather(Trait, Value, c(4,6,7)) -> fdata_gather # The warning is an inconsequential bug from tidyverse (https://github.com/tidyverse/tidyr/issues/386)
+fdata_gather$Value<-as.numeric(fdata_gather$Value)
+fdata_gather$Trait<-as.factor(fdata_gather$Trait)
+fdata_gather <- fdata_gather[,-c(2:4)]
+write.csv(fdata_gather, "fdata_gather.csv")
+```
+
+### Load/ Modify data: Totals
+```{r Introduce total dataset, message=FALSE, warning=FALSE}
+mdata<-read.csv("Assessing_Oct_20.csv",stringsAsFactors=F)
+indiv<-mdata$CODE[!mdata$CODE==""]
+tdata<-mdata[mdata$Slide=="TOTAL",]
+length(indiv)
+nrow(tdata)
+
+ndata<-cbind(indiv,tdata)
+ndata<-ndata[,-c(2,3,4,9,14,17:37)]
+ndata$None.Path<-as.integer(ndata$None.Path)
+ndata$None.Myc<-as.integer(ndata$None.Myc)
+
+# Checking data for problems
+problemsPath<-ndata[!rowSums(ndata[,c(2:5)])==100,]
+problemsHyph<-ndata[!rowSums(ndata[,c(6:9)])==100,]
+problemsHerb<-ndata[!rowSums(ndata[,c(10:11)])==100,]
+
+# Separating "Individual" into: pop,location,species columns 
+ndata$pop<-gsub("^([0-9]+)[I,O][A-Z]+.*","\\1",ndata$indiv)
+ndata$location<-gsub("^[0-9]+([I,O])[A-Z]+.*","\\1",ndata$indiv)
+ndata$species<-gsub("^[0-9]+[I,O]([A-Z]+).*","\\1",ndata$indiv)
+ndata$location<-as.factor(ndata$location)
+ndata$species<-as.factor(ndata$species)
+ndata$pop<-as.factor(ndata$pop)
+
+#### Totalling the scores####
+binlesion<-cbind(ndata$None.Path,100-ndata$None.Path)
+binmycorr<-cbind(ndata$None.Myc,100-ndata$None.Myc)
+binherbivory<-cbind(ndata$None.Herb,100-ndata$None.Herb)
+summary(ndata)
+
+# scale data (only need to scale the numerical variables!)
+numcols <- grep("^None.",names(ndata))
+ndatas <- ndata
+ndatas[,numcols] <- scale(ndatas[,numcols])
+```
+
+
+### Variable descriptions
+
+The variables are:
+
+Co-occurence:
+
+  * **indiv2:** The unique code given to a sample. In this dataset the unique sample code repeats 100 times for each cross where an observation was taken on the root sample. 
+
+  * **None.Path:** A binary representation of whether a sign of pathogen activity was recorded (0) or not (1).
+  
+  * **Lesion:** The counterpart to the previous variable (None.Path). A binary representation of whether a sign of pathogen activity was recorded (1) or not (0).
+
+  * **None.Myc:** A binary representation of whether a sign of myccorhizal activity was recorded (0) or not (1).
+
+  * **Mycorrhiza:** The counterpart to the previous variable (None.Myc). A binary representation of whether a sign of mycorrhizal activity was recorded (1) or not (0).
+    
+  * **None.Herb:** A binary representation of whether herbivory was recorded (0) or not (1).
+
+  * **Herbivory:** The counterpart to the previous variable (None.Herb). A binary representation of whether Herbivoryn was recorded (1) or not (0).
+
+  * **Population (pop):** The coding number representing the population at which the sample was collected. 
+
+  * **location:** A code representing the whether the sample was collected inside a Alliaria petiolata population (I) or whther it was collected at least 7 m outside of he furthest individual in the A. petiolata population (O).
+  
+  * **species:** The particular species to which the sample belongs.
+
+  * **Cross:** The particular cross number where the data was recorded on the individual sample. 
+  
+Total scores:
+
+  * **indiv:** The unique code given to a sample. 
+  
+  * **Decay:** The total number of crosses where decay was recorded an individual sample when doing a total of 100 crosses/ sample.
+
+  * **Pathogen:** The total number of crosses where pathogen was recorded on an individual sample when doing a total of 100 crosses/ sample.
+
+  * **Hyphae:** The total number of crosses where non-myccorhizal hyphae was recorded on an individual sample when doing a total of 100 crosses/ sample.
+
+  * **None.Path:** The total number of crosses where no signs of pathogen activities were recorded on an individual sample when doing a total of 100 crosses/ sample. Note that the total of Decay, Pathogen, Hyphae, and None.Path must come to 100 per individual to account for all 100 crosses.
+
+  * **Arbuscule:** The total number of crosses where an arbuscule was recorded on an individual sample when doing a total of 100 crosses/ sample.
+
+  * **Vesicules:** The total number of crosses where a vesicule was recorded on an individual sample when doing a total of 100 crosses/ sample.
+  
+  * **M_Hyphae:** The total number of crosses where myccorhizal hyphae was recorded on an individual sample when doing a total of 100 crosses/ sample.
+  
+  * **None.Myc:** The total number of crosses where no signs of mycorrhizal activities were recorded on an individual sample when doing a total of 100 crosses/ sample. Note that the total of Arbuscules, Vesicules, M_Hyphae, and None.Myc must come to 100 per individual to account for all 100 crosses.
+  
+  * **Herbivory:** The total number of crosses where herbivory was recorded on an individual sample when doing a total of 100 crosses/ sample.
+  
+  * **None.Herb:** The total number of crosses where no signs of herbivory was recorded on an individual sample when doing a total of 100 crosses/ sample. Note that the total of Herbivory, and None.Herb must come to 100 per individual to account for all 100 crosses.
+
+  * **Population (pop):** The coding number representing the population at which the sample was collected. 
+
+  * **location:** A code representing the whether the sample was collected inside a Alliaria petiolata population (I) or whther it was collected at least 7 m outside of he furthest individual in the A. petiolata population (O).
+  
+  * **species:** The particular species to which the sample belongs.
+  
+
+  
+# Reviewing the hypothesis
+
+## Histology data Hypothesis
+### Hypothesis 1
+
+Mycorrhizal colonization protects roots from lesions and herbivory.
+```{r echo=FALSE}
+y<-data.frame(c(rnorm(50, mean=5, sd=8),rnorm(50, mean=50, sd=8)))
+colnames(y)<-c("y")
+y$y<-sort(y$y, decreasing = T)
+x<-data.frame(c(rnorm(50, mean=5, sd=8),rnorm(50, mean=50, sd=8)))
+colnames(x)<-c("x")
+x$x<-sort(x$x, decreasing = F)
+df <- cbind(x,y)
+colnames(df)<-c("x","y")
+
+ggplot(df, aes(x,y))+geom_smooth(method="lm", se=F)+geom_point()+
+  theme_simple()+labs(x="Mycorrhizal Colonization (%)", y="Lesions (%)")+
+  theme(axis.text.x = element_blank(),axis.text.y = element_blank())
+```
+
+### Hypothesis 2
+
+A. petiolata invasion reduces mycorrhizal colonization and increases pathogen colonization and herbivory
+```{r echo=FALSE}
+InOut<- data.frame(c(rep("I", times=50),rep("O", times=50)))
+colnames(InOut)<-c("Location")
+df <- cbind(df,InOut)
+
+
+ggplot(df, aes(x,y, colour=Location))+geom_smooth(method="lm", se=F)+geom_jitter()+
+  theme_simple()+labs(x="Mycorrhizal Colonization (%)", y="Lesions (%)")+
+  theme(axis.text.x = element_blank(),axis.text.y = element_blank())
+```
+### Hypothesis 3
+
+Efficiency of mycorrhizal protection is reduced in the presence of A. petiolata
+```{r echo=FALSE}
+y<-data.frame(c(rnorm(50, mean=5, sd=8),rep(40, times=10),rep(41, times=10),rep(42, times=10),rep(40.5, times=10),rep(39, times=10)))
+colnames(y)<-c("y")
+y$y<-sort(y$y, decreasing = T)
+x<-data.frame(c(rnorm(50, mean=5, sd=8),rnorm(50, mean=50, sd=8)))
+colnames(x)<-c("x")
+x$x<-sort(x$x, decreasing = F)
+df <- cbind(x,y)
+colnames(df)<-c("x","y")
+
+InOut<- data.frame(c(rep("I", times=50),rep("O", times=50)))
+colnames(InOut)<-c("Location")
+df <- cbind(df,InOut)
+
+
+ggplot(df, aes(x,y, colour=Location))+geom_smooth(method="lm", se=F)+geom_jitter()+
+  theme_simple()+labs(x="Mycorrhizal Colonization (%)", y="Lesions (%)")+
+  theme(axis.text.x = element_blank(),axis.text.y = element_blank())
+```
+
+
+## Molecular data Hypothesis
+
+### Hypothesis 1
+
+A. petiolata invasion changes the diversity of mycorrhizal and other fungal species present in the soil.
+
+I will find that the molecular data from the soil extraction supports this claim by having a reduced biodiversity and abundance of mycorrhiza in samples taken inside A. petiolata populations. 
+
+
+### Hypothesis 2
+
+There will be a negative correlation between mycorrhizal and fungal pathogen diversity.
+
+
+# Histology data Analysis
+
+## Hypothesis 1: Lesion ~ Mycorriza
+
+###Co-occurence data
+
+
+```{r Co-occurence model using corr}
+# calculating the r
+indivCODE <- unique(fdata$indiv2)
+dfcorr <-data.frame(indivCODE=c(0),r=c(0))
+for (i in 1:length(indivCODE)){
+  dat1<-NULL
+  dat1<-filter(fdata, fdata$indiv2==indivCODE[i])
+  dfcorr[i,1] <- indivCODE[i]
+  dfcorr[i,2] <- cor(as.numeric(dat1$Mycorrhiza),as.numeric(dat1$Lesion))
+}
+dfcorr %>% drop_na()->dfcorr
+
+#Normal?
+car::qqp(dfcorr$r, "norm")
+shapiro.test(dfcorr$r)
+hist(dfcorr$r)
+# Cannot be normal because it is only between -1 and 1 and our mean is at 0.
+descdist(dfcorr$r, discrete = FALSE, boot = 500)
+
+# weibull when transformed to be positive?
+dfcorr$r.t <- dfcorr$r+1
+fit.weibull <- fitdist(dfcorr$r.t, "weibull")
+car::qqp(dfcorr$r.t, "weibull", shape = fit.weibull$estimate[[1]])
+
+dfcorr$pop <- gsub("^([0-9]+)[I,O][A-Z]+.*","\\1",dfcorr$indivCODE)
+dfcorr$location <- gsub("^[0-9]+([I,O])[A-Z]+.*","\\1",dfcorr$indivCODE)
+dfcorr$species <- sub("^[0-9]+[I,O]([A-Z]+).*","\\1",dfcorr$indivCODE)
+dfcorr$location <- as.factor(dfcorr$location)
+dfcorr$species <- as.factor(dfcorr$species)
+dfcorr$pop <- as.factor(dfcorr$pop)
+
+meanR<-mean(dfcorr$r)
+SEMR<-sd(dfcorr$r)/sqrt(length(dfcorr$r))
+UCI<- meanR+SEMR*1.96
+LCI<- meanR-SEMR*1.96
+mean(filter(dfcorr, dfcorr$location=="I")$r)
+mean(filter(dfcorr, dfcorr$location=="O")$r)
+
+
+baysian_corrGLMM <- brm(r.t ~ location * species + (1|pop), data=dfcorr, family = weibull(link="log"), control = list(adapt_delta = 0.9))
+baysian_corrGLMM2 <- brm(r.t ~ location + species + (1|pop), data=dfcorr, family = weibull(link="log"), control = list(adapt_delta = 0.9))
+baysian_corrGLMM3 <- brm(r.t ~ location + (1|pop), data=dfcorr, family = weibull(link="log"), control = list(adapt_delta = 0.9))
+baysian_corrGLMM_NULL <- brm(r.t ~ 1 + (1|pop), data=dfcorr, family = weibull(link="log"), control = list(adapt_delta = 0.9))
+
+waic.BCG_1<-waic(baysian_corrGLMM)
+waic.BCG_2<-waic(baysian_corrGLMM2)
+waic.BCG_3<-waic(baysian_corrGLMM3)
+waic.BCG_NULL<-waic(baysian_corrGLMM_NULL)
+compare(waic.BCG_1,waic.BCG_2) #positive means second is better
+compare(waic.BCG_2,waic.BCG_3) #negative means first is better
+compare(waic.BCG_2,waic.BCG_NULL) #negative means first is better
+summary(baysian_corrGLMM2)
+bayes_R2(baysian_corrGLMM2)
+
+
+ggplot(dfcorr, aes(y=r,x=location))+geom_boxplot()+theme_simple()
+ggplot(dfcorr, aes(y=r,x=species))+geom_boxplot()+theme_simple()
+
+```
+
+
+###Totals data
+
+```{r Totals model}
+
+# model 
+GLMMmyc_lesion <- glmer(binlesion ~ None.Myc * species + (1 | pop) , data = ndatas,family = binomial(link = "logit"))
+summary(GLMMmyc_lesion)
+
+options(na.action="na.fail")
+dredge(GLMMmyc_lesion)
+r.squaredGLMM(GLMMmyc_lesion)
+# will need to change this ASAP
+
+ggplot(data = ndata,aes(x = 1-None.Myc, y = 100-None.Path))+
+  stat_summary(fun.y=mean, geom="point")+
+  geom_smooth(method = "lm")+
+  geom_point()+
+  theme_simple()+
+  facet_wrap("species")+
+  labs(x = "Mycorrhizal colonization", y="Lesions")
+```
+**SUMMARY:** 
+
+Is the totals the same as the corr data? 
+
+
+
+if not what has change? what does it mean biologically: Same/less path=mycorrhiza defend NotSame/less path=mycorrhizal defence is not related to colonization. if theres not an effect then maybe it has more to do with the species composition than the actual mycorrhizal colonization, Thats why we will test pathogen colonization alone (without myc = H2)
+
+
+
+
+
+
+
+
+
+
+## Hypothesis 2: Mycorrhiza & Lesion ~ invasion
+
+### Does location impact the effect of myc on lesion? 
+
+```{r location interaction with mycorrhiza and lesion}
+GLMMmyc_lesion_loc <- glmer(binlesion ~ None.Myc * location * species + (1 | pop), data = ndatas, family = binomial(link = "logit"))
+summary(GLMMmyc_lesion_loc)
+
+
+emm<-emmeans(GLMMmyc_lesion_loc, list(~None.Myc| species | location, ~None.Myc| location), type = "response" )
+summary(emm)
+
+
+ggplot(data = ndata,aes(x = 1-None.Myc, y = 100-None.Path))+
+  geom_smooth(method = "lm")+
+  geom_point(aes(color=location))+
+  theme_simple()+
+  facet_wrap("species")+
+  labs(x = "Mycorrhizal colonization", y="Lesions")
+
+
+pca <- prcomp(ndata[,c(5,9)])
+location <- ndata[,13]
+library(ggbiplot)
+g <- ggbiplot(pca, obs.scale = 1, var.scale = 1, 
+                groups = location, ellipse = TRUE, 
+                circle = TRUE)
+g <- g + scale_color_discrete(name = '')
+g <- g + theme(legend.direction = 'horizontal', 
+                 legend.position = 'top')
+print(g)
+```
+
+### Does location impact lesion alone?
+
+```{r location on lesion}
+glmerLESION_disp <- glmer (binlesion ~ location * species + (1|pop) + (1|indiv), data = ndatas, family = binomial(link="logit"))
+summary(glmerLESION_disp)
+options(na.action="na.fail")
+dredge(glmerLESION_disp)
+r.squaredGLMM(glmerLESION_disp)
+
+
+ggplot(aes(x = location, y = 100-None.Path, color=location), data=ndata)+
+  geom_boxplot()+
+  geom_jitter(width=0.1)+
+  facet_wrap("species")+
+  theme_simple()
+```
+
+### Does location impact mycorrhiza alone?
+
+
+```{r location on mycorrhiza}
+glmerMYC_disp <- glmer (binmycorr ~ location * species + (1|pop) + (1|indiv), data = ndata, family = binomial(link="logit"))
+summary(glmerMYC_disp)
+options(na.action="na.fail")
+dredge(glmerMYC_disp)
+r.squaredGLMM(glmerMYC_disp)
+
+ggplot(aes(x = location, y = 100-None.Myc, color=location), data=ndata)+
+  geom_boxplot()+
+  geom_jitter(width=0.1)+
+  facet_wrap("species")+
+  theme_simple()
+
+```
+
+## Hypothesis 3: Lesion ~ Mycorriza * invasion
+
+```{r Hypothesis 3}
+
+ggplot(data = ndata,aes(x = 1-None.Myc, y = 100-None.Path, color=location))+
+  geom_smooth(method = "lm")+
+  geom_point()+
+  theme_simple()+
+  facet_wrap("species")+
+  labs(x = "Mycorrhizal colonization", y="Lesions")
+
+
+ggplot(data = ndata,aes(x = 1-None.Myc, y = 100-None.Path, color=location))+
+  geom_smooth(method = "lm")+
+  geom_point()+
+  theme_simple()+
+  labs(x = "Mycorrhizal colonization", y="Lesions")
+```
+
+
+# Molecular data Analysis
+
+## Hypothesis 1: Mycorrhiza_div ~ invasion
+
+
+## Hypothesis 2: Mycorrhiza_div ~ Pathoge_div
+
+
+
+
+
