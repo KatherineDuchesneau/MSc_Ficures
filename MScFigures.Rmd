@@ -51,7 +51,12 @@ library(loo)
 library(fitdistrplus)
 library(mefa)
 library(ggbiplot)
+```
 
+
+## KAT, PLEASE BREAK UP YOUR CODE INTO SMALL CHUNCKS AND EXPLAIN WHAT EACH IS DOING. 
+Load a custome theme for clean, readable graphs
+```{r echo=F}
 # theme_simple() a homemade function from the Colautti lab (2017) to standardize figures
 theme_simple <- function (base_size = 16, base_family = "") {
   theme_classic(base_size = base_size, base_family = base_family) %+replace%
@@ -68,7 +73,10 @@ theme_simple <- function (base_size = 16, base_family = "") {
       #      legend.position="none"
     )
 }
+```
 
+## EXPLAIN WHAT THIS OVERDISPERSION FUNCTION IS FOR...
+```{r echo=F}
 overdisp_fun <- function(model) {
   ## number of variance parameters in an n-by-n variance-covariance matrix
   vpars <- function(m) {
@@ -95,7 +103,9 @@ mdata <- read.csv("Assessing_Oct_20.csv",stringsAsFactors=F)
 indiv <- mdata$CODE[!mdata$CODE==""]
 tdata <- mdata[grep("[0-9]+",mdata$Cross),]
 nrow(tdata)/length(indiv)
+
 # This is not the same because some individuals just had the totals not the cooccurence data
+## THE COMMENT IS NOT CLEAR, EXPLAIN...
 indiv2 <- tdata$CODE[!tdata$CODE==""]
 nrow(tdata)/length(indiv2)
 indiv2 <- data.frame(indiv2)
@@ -104,6 +114,7 @@ fdata <- cbind(indiv2,tdata)
 fdata <- fdata[,-c(2,3,4,9,14,17,18)]
 
 # Cleaning up the occurence data
+## CLEANING UP HOW?
 fdata[is.na(fdata)] <- 0
 fdata$Lesion<-rowSums(fdata[,2:4])
 fdata[fdata$Lesion>1,]
@@ -116,7 +127,7 @@ fdata <- fdata[,-c(2:4,6:8)]
 summary(fdata)
 fdata$None.Path <- as.integer(fdata$None.Path)
 fdata$None.Myc <- as.integer(fdata$None.Myc)
-fdata[is.na(fdata)] <- 0
+fdata[is.na(fdata)] <- 0 
 
 
 sherb <- fdata$Herbivory+fdata$None.Herb
@@ -297,23 +308,29 @@ Total scores:
   
 
   
-# Reviewing the hypothesis
+# Reviewing of hypotheses:
 
-## Histology data Hypothesis
+## Question 1: Is there evidence that Mycorrhizal colonization provides protection against root pathogen damage? 
+
+## Question 2: Do these effects vary among species?
+
 ### Hypothesis 1
+
+### VERY NICE PREDICTION FIGURES! PERSONALLY, I WOULD MAKE THE DOTS BIGGER AND BIVARIATE NORMAL (SEE CHANGES):
 
 Mycorrhizal colonization protects roots from lesions and herbivory.
 ```{r echo=FALSE}
-y<-data.frame(c(rnorm(50, mean=5, sd=8),rnorm(50, mean=50, sd=8)))
+set.seed(3242)
+y<-data.frame(rnorm(100,sd=7))
 colnames(y)<-c("y")
-y$y<-sort(y$y, decreasing = T)
-x<-data.frame(c(rnorm(50, mean=5, sd=8),rnorm(50, mean=50, sd=8)))
+y$y<-sort(y$y)
+x<-data.frame(-y+rnorm(100))
 colnames(x)<-c("x")
-x$x<-sort(x$x, decreasing = F)
 df <- cbind(x,y)
 colnames(df)<-c("x","y")
+df$Location <- c(rep("Out",nrow(df)/2),rep("In",nrow(df)/2))
 
-ggplot(df, aes(x,y))+geom_smooth(method="lm", se=F)+geom_point()+
+ggplot(data=df, aes(x,y))+geom_smooth(method="lm", se=F)+geom_point(size=4,alpha=0.3)+
   theme_simple()+labs(x="Mycorrhizal Colonization (%)", y="Lesions (%)")+
   theme(axis.text.x = element_blank(),axis.text.y = element_blank())
 ```
@@ -322,38 +339,35 @@ ggplot(df, aes(x,y))+geom_smooth(method="lm", se=F)+geom_point()+
 
 A. petiolata invasion reduces mycorrhizal colonization and increases pathogen colonization and herbivory
 ```{r echo=FALSE}
-InOut<- data.frame(c(rep("I", times=50),rep("O", times=50)))
-colnames(InOut)<-c("Location")
-df <- cbind(df,InOut)
-
-
-ggplot(df, aes(x,y, colour=Location))+geom_smooth(method="lm", se=F)+geom_jitter()+
-  theme_simple()+labs(x="Mycorrhizal Colonization (%)", y="Lesions (%)")+
+ggplot(df, aes(x,y, colour=Location))+geom_smooth(method="lm", se=F)+
+  geom_point(size=4,alpha=0.3)+theme_simple()+
+  labs(x="Mycorrhizal Colonization (%)", y="Lesions (%)")+
   theme(axis.text.x = element_blank(),axis.text.y = element_blank())
 ```
 ### Hypothesis 3
 
-Efficiency of mycorrhizal protection is reduced in the presence of A. petiolata
+Cycorrhizal colonization is reduced in the presence of A. petiolata
 ```{r echo=FALSE}
-y<-data.frame(c(rnorm(50, mean=5, sd=8),rep(40, times=10),rep(41, times=10),rep(42, times=10),rep(40.5, times=10),rep(39, times=10)))
-colnames(y)<-c("y")
-y$y<-sort(y$y, decreasing = T)
-x<-data.frame(c(rnorm(50, mean=5, sd=8),rnorm(50, mean=50, sd=8)))
-colnames(x)<-c("x")
-x$x<-sort(x$x, decreasing = F)
-df <- cbind(x,y)
-colnames(df)<-c("x","y")
-
-InOut<- data.frame(c(rep("I", times=50),rep("O", times=50)))
-colnames(InOut)<-c("Location")
-df <- cbind(df,InOut)
-
-
-ggplot(df, aes(x,y, colour=Location))+geom_smooth(method="lm", se=F)+geom_jitter()+
+df$y2<-df$y
+df$y2[df$Location=="In"]<-df$y2[df$Location=="In"]+10
+ggplot(df, aes(x,y2, colour=Location))+geom_smooth(method="lm", se=F)+
+  geom_point(size=4,alpha=0.3)+
   theme_simple()+labs(x="Mycorrhizal Colonization (%)", y="Lesions (%)")+
   theme(axis.text.x = element_blank(),axis.text.y = element_blank())
 ```
 
+### Hypothesis 4
+
+Mycorrhizal protection is completely lost in the presence of A. petiolata
+```{r echo=FALSE}
+df$y2<-df$y
+set.seed (238.4)
+df$y2[df$Location=="In"]<-rnorm(nrow(df)/2,mean=10)
+ggplot(df, aes(x,y2, colour=Location))+geom_smooth(method="lm", se=F)+
+  geom_point(size=4,alpha=0.3)+
+  theme_simple()+labs(x="Mycorrhizal Colonization (%)", y="Lesions (%)")+
+  theme(axis.text.x = element_blank(),axis.text.y = element_blank())
+```
 
 ## Molecular data Hypothesis
 
@@ -363,6 +377,13 @@ A. petiolata invasion changes the diversity of mycorrhizal and other fungal spec
 
 I will find that the molecular data from the soil extraction supports this claim by having a reduced biodiversity and abundance of mycorrhiza in samples taken inside A. petiolata populations. 
 
+## IMPORTANT: BEFORE RUNNING COMPLICATED MODELS: (1) TAKE A LOOK AT THE DATA, (2) RUN SIMPLE MODELS -- SEE IF IT IS EVEN WORTH YOUR TIME & EFFORT
+
+
+
+
+
+
 
 ### Hypothesis 2
 
@@ -371,12 +392,85 @@ There will be a negative correlation between mycorrhizal and fungal pathogen div
 
 # Histology data Analysis
 
+### Data exploration:
+
+Calculate plant-level Mycchorizae, pathogens and herbivory:
+
+```{r}
+# Fix column characteristics for plotting and analysis
+fdata$indiv2<-as.factor(fdata$indiv2)
+fdata$Mycorrhiza<-as.numeric(paste(fdata$Mycorrhiza))
+fdata$Lesion<-as.numeric(paste(fdata$Lesion))
+fdata$Herbivory<-as.numeric(paste(fdata$Herbivory))
+pct<-function(x){
+  sum(x)/100
+}
+
+# Calculate plant-level averages
+fdat_ind<-aggregate(fdata[,c("Mycorrhiza","Lesion","Herbivory")],
+                    by=list(indiv2=fdata$indiv2,pop=fdata$pop,loc=fdata$loc,species=fdata$species),
+                    pct)
+
+```
+
+## SIMPLE LINEAR MODEL AND VISUALIZATION:
+
+### Mycorrhia model results
+
+  1. Mycorrhiza colonization is significantly higher outside patches of A. petiolata than inside
+  2a. Species vary in Mycorrhiza colonization, with highest colonization in SC and others relatively similar. 
+  2b. Effect of A. petiolata on Mycorrhiza colonization differs among species, with more pronounced effects for GR and MR, and will little effect for GA
+  3. Effect of A. petiolata on Mycorrhiza colonization varies by population, but not as strongly as among species
+  
+
+```{r}
+## Mycorrhiza model (NOTE: No loc*species because not all species present in all populations)
+base.Myc<-lmer(Mycorrhiza~species+loc+species:loc+(1|pop)+(1|pop:loc),data=fdat_ind)
+noint.Myc<-lmer(Mycorrhiza~species+loc+(1|pop)+(1|pop:loc),data=fdat_ind)
+anova(base.Myc,noint.Myc)
+base.Myc ## Inspect coefficients
+
+ggplot(fdat_ind,aes(species,Mycorrhiza,colour=loc))+geom_boxplot()+theme_simple()
+ggplot(fdat_ind,aes(pop,Mycorrhiza,colour=loc))+geom_boxplot()+theme_simple()
+```
+
+
+### Lesions model results
+
+  1. Root lesions increase with mycorrhiza colonization, contrary to predictions
+  2. Effect of Mycorrhiza on Lesions depends strongly on species (Myc*species interactions)
+
+```{r}
+## Mycorrhiza model (NOTE: No loc*species because not all species present in all populations)
+base.Les<-lmer(Lesion~Mycorrhiza*species*loc+(1|pop/loc),data=fdat_ind)
+norint.Les<-lmer(Lesion~Mycorrhiza*species*loc+(1|pop),data=fdat_ind)
+anova(base.Les,norint.Les)
+norint.Les # inspect coefficients
+
+Les2<-lmer(Lesion~Mycorrhiza*species*loc-Mycorrhiza:species:loc+(1|pop),data=fdat_ind)
+anova(norint.Les,Les2)
+
+Les3a<-lmer(Lesion~Mycorrhiza*species+Mycorrhiza*loc+(1|pop),data=fdat_ind)
+Les3b<-lmer(Lesion~Mycorrhiza*species+species*loc+(1|pop),data=fdat_ind)
+Les3c<-lmer(Lesion~species*loc+Mycorrhiza*loc+(1|pop),data=fdat_ind)
+anova(norint.Les,Les3a) # TEST species*loc 
+anova(norint.Les,Les3b) # TEST Myc*loc 
+anova(norint.Les,Les3c) # TEST Myc*species
+
+
+ggplot(fdat_ind,aes(Mycorrhiza,Lesion))+facet_wrap(~species)+
+  geom_point(aes(col=loc))+theme_simple()+geom_smooth(method="lm")
+```
+
+
+
+
+
 ## Hypothesis 1: Lesion ~ Mycorriza
 
-###Co-occurence data
+### GIVEN THE NEW ANALYSIS ABOVE, THIS ISN'T WORTHWILE BECAUSE THERE IS NO SIGNIFICANT Myc:species:loc
 
-
-```{r Co-occurence model using corr}
+```{r}
 # calculating the r
 indivCODE <- unique(fdata$indiv2)
 dfcorr <-data.frame(indivCODE=c(0),r=c(0))
@@ -387,7 +481,12 @@ for (i in 1:length(indivCODE)){
   dfcorr[i,2] <- cor(as.numeric(dat1$Mycorrhiza),as.numeric(dat1$Lesion))
 }
 dfcorr %>% drop_na()->dfcorr
+```
 
+
+###Co-occurence data
+
+```{r Co-occurence model using corr}
 #Normal?
 car::qqp(dfcorr$r, "norm")
 shapiro.test(dfcorr$r)

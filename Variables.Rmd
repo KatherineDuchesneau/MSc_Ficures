@@ -1,0 +1,71 @@
+---
+title: "Variables"
+author: "Robert I. Colautti"
+date: "January 27, 2018"
+output: html_document
+---
+
+# Datasets
+
+  * Assessing_Oct_20.csv (mdata) --> Root transect data
+  * fdata --> mdata with errors corrected
+  * fdata_gather --> repeated measures version of fdata
+
+
+# Variable descriptions
+
+The variables are:
+
+Co-occurence:
+
+  * **indiv2:** The unique code given to a sample. In this dataset the unique sample code repeats 100 times for each cross where an observation was taken on the root sample. 
+
+  * **None.Path:** A binary representation of whether a sign of pathogen activity was recorded (0) or not (1).
+  
+  * **Lesion:** The counterpart to the previous variable (None.Path). A binary representation of whether a sign of pathogen activity was recorded (1) or not (0).
+
+  * **None.Myc:** A binary representation of whether a sign of myccorhizal activity was recorded (0) or not (1).
+
+  * **Mycorrhiza:** The counterpart to the previous variable (None.Myc). A binary representation of whether a sign of mycorrhizal activity was recorded (1) or not (0).
+    
+  * **None.Herb:** A binary representation of whether herbivory was recorded (0) or not (1).
+
+  * **Herbivory:** The counterpart to the previous variable (None.Herb). A binary representation of whether Herbivoryn was recorded (1) or not (0).
+
+  * **Population (pop):** The coding number representing the population at which the sample was collected. 
+
+  * **location:** A code representing the whether the sample was collected inside a Alliaria petiolata population (I) or whther it was collected at least 7 m outside of he furthest individual in the A. petiolata population (O).
+  
+  * **species:** The particular species to which the sample belongs.
+
+  * **Cross:** The particular cross number where the data was recorded on the individual sample. 
+  
+Total scores:
+
+  * **indiv:** The unique code given to a sample. 
+  
+  * **Decay:** The total number of crosses where decay was recorded an individual sample when doing a total of 100 crosses/ sample.
+
+  * **Pathogen:** The total number of crosses where pathogen was recorded on an individual sample when doing a total of 100 crosses/ sample.
+
+  * **Hyphae:** The total number of crosses where non-myccorhizal hyphae was recorded on an individual sample when doing a total of 100 crosses/ sample.
+
+  * **None.Path:** The total number of crosses where no signs of pathogen activities were recorded on an individual sample when doing a total of 100 crosses/ sample. Note that the total of Decay, Pathogen, Hyphae, and None.Path must come to 100 per individual to account for all 100 crosses.
+
+  * **Arbuscule:** The total number of crosses where an arbuscule was recorded on an individual sample when doing a total of 100 crosses/ sample.
+
+  * **Vesicules:** The total number of crosses where a vesicule was recorded on an individual sample when doing a total of 100 crosses/ sample.
+  
+  * **M_Hyphae:** The total number of crosses where myccorhizal hyphae was recorded on an individual sample when doing a total of 100 crosses/ sample.
+  
+  * **None.Myc:** The total number of crosses where no signs of mycorrhizal activities were recorded on an individual sample when doing a total of 100 crosses/ sample. Note that the total of Arbuscules, Vesicules, M_Hyphae, and None.Myc must come to 100 per individual to account for all 100 crosses.
+  
+  * **Herbivory:** The total number of crosses where herbivory was recorded on an individual sample when doing a total of 100 crosses/ sample.
+  
+  * **None.Herb:** The total number of crosses where no signs of herbivory was recorded on an individual sample when doing a total of 100 crosses/ sample. Note that the total of Herbivory, and None.Herb must come to 100 per individual to account for all 100 crosses.
+
+  * **Population (pop):** The coding number representing the population at which the sample was collected. 
+
+  * **location:** A code representing the whether the sample was collected inside a Alliaria petiolata population (I) or whther it was collected at least 7 m outside of he furthest individual in the A. petiolata population (O).
+  
+  * **species:** The particular species to which the sample belongs.
