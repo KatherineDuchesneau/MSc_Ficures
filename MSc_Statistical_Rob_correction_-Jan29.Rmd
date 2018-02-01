@@ -1,12 +1,12 @@
 ---
 title: "MSc Statistical Rob correction -Jan29"
 output:
-  html_document:
-    df_print: paged
-    toc: yes
   html_notebook:
     highlight: tango
     theme: cerulean
+    toc: yes
+  html_document:
+    df_print: paged
     toc: yes
   word_document:
     toc: yes
@@ -54,8 +54,8 @@ library(ggbiplot)
 ```
 
 
-## KAT, PLEASE BREAK UP YOUR CODE INTO SMALL CHUNCKS AND EXPLAIN WHAT EACH IS DOING. 
-Load a custome theme for clean, readable graphs
+Load a custome theme for clean, readable graphs:
+
 ```{r echo=F}
 # theme_simple() a homemade function from the Colautti lab (2017) to standardize figures
 theme_simple <- function (base_size = 16, base_family = "") {
@@ -75,7 +75,8 @@ theme_simple <- function (base_size = 16, base_family = "") {
 }
 ```
 
-## EXPLAIN WHAT THIS OVERDISPERSION FUNCTION IS FOR...
+Overdispersion function, tests for overdispersion in GLMM:
+
 ```{r echo=F}
 overdisp_fun <- function(model) {
   ## number of variance parameters in an n-by-n variance-covariance matrix
@@ -98,7 +99,7 @@ overdisp_fun <- function(model) {
 # Introducing the Data 
 
 ### Load/ Modify data: Co-occurence
-```{r Introduce co-occurence dataset, message=FALSE, warning=FALSE}
+```{r Introduce co-occurence dataset, message=FALSE, warning=FALSE, echo=FALSE}
 mdata <- read.csv("Assessing_Oct_20.csv",stringsAsFactors=F)
 indiv <- mdata$CODE[!mdata$CODE==""]
 tdata <- mdata[grep("[0-9]+",mdata$Cross),]
@@ -210,7 +211,7 @@ fdata_gather <- fdata_gather[,-c(2:4)]
 ```
 
 ### Load/ Modify data: Totals
-```{r Introduce total dataset, message=FALSE, warning=FALSE}
+```{r Introduce total dataset, message=FALSE, warning=FALSE, echo=FALSE}
 mdata<-read.csv("Assessing_Oct_20.csv",stringsAsFactors=F)
 indiv<-mdata$CODE[!mdata$CODE==""]
 tdata<-mdata[mdata$Slide=="TOTAL",]
@@ -316,7 +317,6 @@ Total scores:
 
 ### Hypothesis 1
 
-### VERY NICE PREDICTION FIGURES! PERSONALLY, I WOULD MAKE THE DOTS BIGGER AND BIVARIATE NORMAL (SEE CHANGES):
 
 Mycorrhizal colonization protects roots from lesions and herbivory.
 ```{r echo=FALSE}
@@ -342,7 +342,8 @@ A. petiolata invasion reduces mycorrhizal colonization and increases pathogen co
 ggplot(df, aes(x,y, colour=Location))+geom_smooth(method="lm", se=F)+
   geom_point(size=4,alpha=0.3)+theme_simple()+
   labs(x="Mycorrhizal Colonization (%)", y="Lesions (%)")+
-  theme(axis.text.x = element_blank(),axis.text.y = element_blank())
+  theme(axis.text.x = element_blank(),axis.text.y = element_blank())+
+  scale_color_brewer(palette="Dark2")
 ```
 ### Hypothesis 3
 
@@ -353,7 +354,8 @@ df$y2[df$Location=="In"]<-df$y2[df$Location=="In"]+10
 ggplot(df, aes(x,y2, colour=Location))+geom_smooth(method="lm", se=F)+
   geom_point(size=4,alpha=0.3)+
   theme_simple()+labs(x="Mycorrhizal Colonization (%)", y="Lesions (%)")+
-  theme(axis.text.x = element_blank(),axis.text.y = element_blank())
+  theme(axis.text.x = element_blank(),axis.text.y = element_blank())+
+  scale_color_brewer(palette="Dark2")
 ```
 
 ### Hypothesis 4
@@ -366,7 +368,8 @@ df$y2[df$Location=="In"]<-rnorm(nrow(df)/2,mean=10)
 ggplot(df, aes(x,y2, colour=Location))+geom_smooth(method="lm", se=F)+
   geom_point(size=4,alpha=0.3)+
   theme_simple()+labs(x="Mycorrhizal Colonization (%)", y="Lesions (%)")+
-  theme(axis.text.x = element_blank(),axis.text.y = element_blank())
+  theme(axis.text.x = element_blank(),axis.text.y = element_blank())+
+  scale_color_brewer(palette="Dark2")
 ```
 
 ## Molecular data Hypothesis
@@ -377,24 +380,16 @@ A. petiolata invasion changes the diversity of mycorrhizal and other fungal spec
 
 I will find that the molecular data from the soil extraction supports this claim by having a reduced biodiversity and abundance of mycorrhiza in samples taken inside A. petiolata populations. 
 
-## IMPORTANT: BEFORE RUNNING COMPLICATED MODELS: (1) TAKE A LOOK AT THE DATA, (2) RUN SIMPLE MODELS -- SEE IF IT IS EVEN WORTH YOUR TIME & EFFORT
-
-
-
-
-
-
-
 ### Hypothesis 2
 
 There will be a negative correlation between mycorrhizal and fungal pathogen diversity.
-
 
 # Histology data Analysis
 
 ### Data exploration:
 
 Calculate plant-level Mycchorizae, pathogens and herbivory:
+
 
 ```{r}
 # Fix column characteristics for plotting and analysis
@@ -407,21 +402,12 @@ pct<-function(x){
 }
 
 # Calculate plant-level averages
-fdat_ind<-aggregate(fdata[,c("Mycorrhiza","Lesion","Herbivory")],
-                    by=list(indiv2=fdata$indiv2,pop=fdata$pop,loc=fdata$loc,species=fdata$species),
-                    pct)
-
+fdat_ind<-aggregate(fdata[,c("Mycorrhiza","Lesion","Herbivory")],by=list(indiv2=fdata$indiv2,pop=fdata$pop,loc=fdata$loc,species=fdata$species, pct))
 ```
 
-## SIMPLE LINEAR MODEL AND VISUALIZATION:
 
-### Mycorrhia model results
+#### Simple linear model visualization:
 
-  1. Mycorrhiza colonization is significantly higher outside patches of A. petiolata than inside
-  2a. Species vary in Mycorrhiza colonization, with highest colonization in SC and others relatively similar. 
-  2b. Effect of A. petiolata on Mycorrhiza colonization differs among species, with more pronounced effects for GR and MR, and will little effect for GA
-  3. Effect of A. petiolata on Mycorrhiza colonization varies by population, but not as strongly as among species
-  
 
 ```{r}
 ## Mycorrhiza model (NOTE: No loc*species because not all species present in all populations)
@@ -434,11 +420,13 @@ ggplot(fdat_ind,aes(species,Mycorrhiza,colour=loc))+geom_boxplot()+theme_simple(
 ggplot(fdat_ind,aes(pop,Mycorrhiza,colour=loc))+geom_boxplot()+theme_simple()
 ```
 
+**Mycorrhia model results**
 
-### Lesions model results
+1. Mycorrhiza colonization is significantly higher outside patches of A. petiolata than inside
+  2a. Species vary in Mycorrhiza colonization, with highest colonization in SC and others relatively similar. 
+  2b. Effect of A. petiolata on Mycorrhiza colonization differs among species, with more pronounced effects for GR and MR, and will little effect for GA
+  3. Effect of A. petiolata on Mycorrhiza colonization varies by population, but not as strongly as among species
 
-  1. Root lesions increase with mycorrhiza colonization, contrary to predictions
-  2. Effect of Mycorrhiza on Lesions depends strongly on species (Myc*species interactions)
 
 ```{r}
 ## Mycorrhiza model (NOTE: No loc*species because not all species present in all populations)
@@ -462,13 +450,15 @@ ggplot(fdat_ind,aes(Mycorrhiza,Lesion))+facet_wrap(~species)+
   geom_point(aes(col=loc))+theme_simple()+geom_smooth(method="lm")
 ```
 
+** Lesions model results**
 
-
+  1. Root lesions increase with mycorrhiza colonization, contrary to predictions
+  2. Effect of Mycorrhiza on Lesions depends strongly on species (Myc*species interactions)
 
 
 ## Hypothesis 1: Lesion ~ Mycorriza
 
-### GIVEN THE NEW ANALYSIS ABOVE, THIS ISN'T WORTHWILE BECAUSE THERE IS NO SIGNIFICANT Myc:species:loc
+GIVEN THE NEW ANALYSIS ABOVE, THIS ISN'T WORTHWILE BECAUSE THERE IS NO SIGNIFICANT Myc:species:loc
 
 ```{r}
 # calculating the r
@@ -534,80 +524,6 @@ ggplot(dfcorr, aes(y=r,x=location))+geom_boxplot()+theme_simple()
 ggplot(dfcorr, aes(y=r,x=species))+geom_boxplot()+theme_simple()
 
 ```
-
-
-
-
-Co-occurence with gather: what is the difference? 
-Here I want to see that the traits are associating differently at every cross for each indiv
-
-
-````{r Co-occurence model GATHER}
-
-baysianGLMERmyc_lesion_GTHR <- brm(Value ~ Trait * species + (1|pop) + (1|indiv2/cross), data = fdata_gather, family = bernoulli,control = list(adapt_delta = 0.95))
-
-summary(baysianGLMERmyc_lesion_GTHR)
-bayes_R2(baysianGLMERmyc_lesion_GTHR)
-
-baysianGLMERmyc_lesion_GTHR_1 <- brm(Value ~ Trait * location * species + (1|pop) + (1|indiv2/cross), data = fdata_gather, family = bernoulli,control = list(adapt_delta = 0.95))
-
-baysianGLMERmyc_lesion_GTHR_2 <- brm(Value ~ Trait + (1|pop) + (1|indiv2/cross), data = fdata_gather, family = bernoulli,control = list(adapt_delta = 0.95))
-
-baysianGLMERmyc_lesion_GTHR_NULL <- brm(Value ~ 1 + (1|pop) + (1|indiv2/cross), data = fdata_gather, family = bernoulli,control = list(adapt_delta = 0.95))
-
-model.sel(baysianGLMERmyc_lesion_GTHR,baysianGLMERmyc_lesion_GTHR_1,baysianGLMERmyc_lesion_GTHR_2,baysianGLMERmyc_lesion_GTHR_NULL) #not sure if this function will work with brm model, if not ill just have to do a waic and then a compare like the previous... should test with a smaller model
-```
-**SUMMARY:** 
-
-What is significant with the correlation~location*sp model?
-
-
-
-What does it change when we gather the model? What am I really testing?
-Does it really test what I want it to test?
-
-
-What is significant when we gather? Is this model even any good?
-
-
-
-
-
-###Totals data
-
-```{r Totals model}
-
-# model 
-GLMMmyc_lesion <- glmer(binlesion ~ None.Myc * species + (1 | pop) , data = ndatas,family = binomial(link = "logit"))
-summary(GLMMmyc_lesion)
-
-options(na.action="na.fail")
-dredge(GLMMmyc_lesion)
-r.squaredGLMM(GLMMmyc_lesion)
-# will need to change this ASAP
-
-ggplot(data = ndata,aes(x = 1-None.Myc, y = 100-None.Path))+
-  stat_summary(fun.y=mean, geom="point")+
-  geom_smooth(method = "lm")+
-  geom_point()+
-  theme_simple()+
-  facet_wrap("species")+
-  labs(x = "Mycorrhizal colonization", y="Lesions")
-```
-**SUMMARY:** 
-
-Is the totals the same as the corr data? 
-
-
-
-if not what has change? what does it mean biologically: Same/less path=mycorrhiza defend NotSame/less path=mycorrhizal defence is not related to colonization. if theres not an effect then maybe it has more to do with the species composition than the actual mycorrhizal colonization, Thats why we will test pathogen colonization alone (without myc = H2)
-
-
-
-
-
-
-
 
 
 
