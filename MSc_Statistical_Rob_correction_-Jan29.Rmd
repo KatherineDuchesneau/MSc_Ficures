@@ -1,12 +1,12 @@
 ---
-title: "MSc Statistical overview"
+title: "MSc Statistical Rob correction -Jan29"
 output:
+  html_document:
+    df_print: paged
+    toc: yes
   html_notebook:
     highlight: tango
     theme: cerulean
-    toc: yes
-  html_document:
-    df_print: paged
     toc: yes
   word_document:
     toc: yes
@@ -99,7 +99,7 @@ overdisp_fun <- function(model) {
 
 ### Load/ Modify data: Co-occurence
 ```{r Introduce co-occurence dataset, message=FALSE, warning=FALSE}
-mdata <- read.csv("CSV/Assessing_Oct_20.csv",stringsAsFactors=F)
+mdata <- read.csv("Assessing_Oct_20.csv",stringsAsFactors=F)
 indiv <- mdata$CODE[!mdata$CODE==""]
 tdata <- mdata[grep("[0-9]+",mdata$Cross),]
 nrow(tdata)/length(indiv)
@@ -211,7 +211,7 @@ fdata_gather <- fdata_gather[,-c(2:4)]
 
 ### Load/ Modify data: Totals
 ```{r Introduce total dataset, message=FALSE, warning=FALSE}
-mdata<-read.csv("CSV/Assessing_Oct_20.csv",stringsAsFactors=F)
+mdata<-read.csv("Assessing_Oct_20.csv",stringsAsFactors=F)
 indiv<-mdata$CODE[!mdata$CODE==""]
 tdata<-mdata[mdata$Slide=="TOTAL",]
 length(indiv)
@@ -705,8 +705,3 @@ ggplot(data = ndata,aes(x = 1-None.Myc, y = 100-None.Path, color=location))+
 
 
 ## Hypothesis 2: Mycorrhiza_div ~ Pathoge_div
-
-
-
-
-
