@@ -413,24 +413,51 @@ There will be a negative correlation between mycorrhizal and fungal pathogen div
 ## Plant length and GM presence 
 
 ```{r}
-mod1<-PlantLength$Length_plant~PlantLength$Location+(1|PlantLength$Species)+(1|PlantLength$Population)
 row.has.na <- apply(PlantLength, 1, function(x){any(is.na(x))})
 sum(row.has.na) 
 PlantLength.filtered <- PlantLength[!row.has.na,]# Removed all the rows with NAs
 
-mod1<-lmer(log(PlantLength.filtered$Length_plant)~PlantLength.filtered$Location+(1|PlantLength.filtered$Species)+(1|PlantLength.filtered$Population))
-mod2<-lmer(log(PlantLength.filtered$Length_plant)~PlantLength.filtered$Location+(1|PlantLength.filtered$Species))
-mod3<-lmer(log(PlantLength.filtered$Length_plant)~1+(1|PlantLength.filtered$Species)+(1|PlantLength.filtered$Population))
-# Made these three models, one is all of them, one no population, and one no in/ out
-summary(mod1)
-anova(mod1,mod2) # One ANOVA with model 1, one with model 2 to compare if they are statistically significantly different from each other
-qplot(predict(mod1),log(PlantLength.filtered$Length_plant)) #is this model normal? NO
-qplot(predict(mod1),log(PlantLength.filtered$Length_plant)-predict(mod1)) # Make this model normal by log() the y variable.
-cor(predict(mod1),PlantLength.filtered$Length_plant)^2 # Are the correlation coefficients meaningful?
-cor(predict(mod2),PlantLength.filtered$Length_plant)^2 # Are the correlation coefficients meaningful wihout pops?
+car::qqp(PlantLength$Length_plant, "norm")
+shapiro.test(PlantLength$Length_plant)
 
-anova(mod1,mod3) # Repeat with a model without the in/ out component.
-cor(predict(mod3),PlantLength.filtered$Length_plant)^2 # how much different does it make when we consider GM?
+par(mfrow = c(1,1))
+descdist(PlantLength.filtered$Length_plant, discrete = FALSE, boot = 1000)
+f1g <- fitdist(PlantLength.filtered$Length_plant, "lnorm") 
+f2g <- fitdist(PlantLength.filtered$Length_plant, "norm") 
+f3g <- fitdist(PlantLength.filtered$Length_plant, "gamma")
+f4g <- fitdist(PlantLength.filtered$Length_plant, "weibull")
+f1g$aic
+f2g$aic
+f3g$aic
+f4g$aic
+
+mod1<-lm(Length_plant~Location*Species, data=PlantLength.filtered)
+
+bc<-boxcox(mod1, lambda = seq(-2, 2, 0.1))
+lambda <- bc$x[which.max(bc$y)]
+PlantLength.filtered <- cbind(PlantLength.filtered, ((PlantLength.filtered$Length_plant^lambda)-1)/lambda)
+names(PlantLength.filtered)[5] <- "Yprime"
+mod1BC <- lm(Yprime~Location*Species, data=PlantLength.filtered) 
+
+par(mfrow = c(2, 2))
+plot(mod1BC)
+# This is basically a log transformation. 
+
+# Multicolinearity?
+car::vif(mod1BC)
+sqrt(car::vif(mod1BC)) > 2
+
+
+mod1<-lmer(log(Length_plant)~Location*Species+(1|Pop), data=PlantLength.filtered)
+
+mod2<-lmer(log(Length_plant)~Location+(1|Pop), data=PlantLength.filtered)
+
+mod3<-lmer(log(Length_plant)~1+(1|Pop), data=PlantLength.filtered)
+
+AICres <- model.sel(mod1,mod2,mod3)
+r.squaredLR(mod1)
+summary(mod1)
+confint(mod1)
 ```
 
 
@@ -438,6 +465,7 @@ cor(predict(mod3),PlantLength.filtered$Length_plant)^2 # how much different does
 
 ## Floristic composition and GM presence
 
+### PCA
 ```{r}
 colnames(FloristicSurvey)[1] <- "Population" # population loads in weirdly, I am just arranging it to not have quotes around. so odd
 FloristicSurvey$Population<-as.factor(FloristicSurvey$Population) # Make the population a factor and not an interger
@@ -460,7 +488,7 @@ n=25
 ```{r}
 # Discriminant function analysis is used (general LDA format) because i have a cat. dependent and a binary independent. (it needs binary or continuous!)
 # you might have to bin covers because it only works with categorical, so 0-5% none, 6-40 low etc.
-FloristicSurvey$GM_Coverage_category<-cut(FloristicSurvey$GM_Coverage, c(-Inf,20,50,80,100), labels = c("None", "Med_Low", "Med_High", "Overtaken"))
+FloristicSurvey$GM_Coverage_category<-cut(FloristicSurvey$GM_Coverage, c(-Inf,25,50,75,100), labels = c("None", "Med_Low", "Med_High", "Overtaken"))
 table(FloristicSurvey$GM_Coverage_category)
 # [0-20] None
 # ]20-50] Medium low
@@ -468,7 +496,6 @@ table(FloristicSurvey$GM_Coverage_category)
 # ]80-100] Overtaken
 ```
 
-### LDA
 ```{r}
 #LDA
 FloristicSurveysmall<-data.frame(FloristicSurvey[,4:56])
@@ -530,21 +557,36 @@ colnames(mydata) <- my.names
 mydata <- mydata[-1,]
 d <- dist(t(mydata), method = "euclidean") # distance matrix
 fit <- hclust(d, method = "ward.D")
-plot(fit) 
+fitd <- as.dendrogram(fit)
+
+par(mfrow=c(3,2))
+plot(fit,cex=0.4,main="Clustering with populations")
+plot(cut(fitd, h=10)$upper, main="Upper tree of cut at h=10")
+plot(cut(fitd, h=10)$lower[[1]], main="First branch of lower tree with cut at h=10")
+plot(cut(fitd, h=10)$lower[[2]], main="Second branch of lower tree with cut at h=10")
+plot(cut(fitd, h=10)$lower[[3]], main="Third branch of lower tree with cut at h=10")
+plot(cut(fitd, h=10)$lower[[4]], main="Fourth branch of lower tree with cut at h=10")
 
 #do they cluster by GM coverage?
 FloristicSurvey[is.na(FloristicSurvey)] <- 0
 #this will just make the dendogram easier to see
-FloristicSurvey$GM_Coverage_category<-cut(FloristicSurvey$GM_Coverage, c(-Inf,5,30,50,70,95,100), labels = c("N", "L", "ML", "MH", "H", "F"))
+FloristicSurvey$GM_Coverage_category<-cut(FloristicSurvey$GM_Coverage, c(-Inf,25,50,75,100), labels = c("None", "ML", "MH", "High"))
 mydata<-t(data.frame(FloristicSurvey[,56],FloristicSurvey[,4:55]))
 my.names <- mydata[1,]
 colnames(mydata) <- my.names
 mydata <- mydata[-1,]
 d <- dist(t(mydata), method = "euclidean") # distance matrix
 fit <- hclust(d, method = "ward.D")
-plot(fit) 
+fitd <- as.dendrogram(fit)
 FloristicSurvey$GM_Coverage_category<-cut(FloristicSurvey$GM_Coverage, c(-Inf,5,30,50,70,95,100), labels = c("None", "Low", "Med_Low", "Med_High", "High", "Overtaken"))
 
+par(mfrow=c(3,2))
+plot(fit,cex=0.4,main="Clustering with populations")
+plot(cut(fitd, h=10)$upper, main="Upper tree of cut at h=10")
+plot(cut(fitd, h=10)$lower[[1]], main="First branch of lower tree with cut at h=10")
+plot(cut(fitd, h=10)$lower[[2]], main="Second branch of lower tree with cut at h=10")
+plot(cut(fitd, h=10)$lower[[3]], main="Third branch of lower tree with cut at h=10")
+plot(cut(fitd, h=10)$lower[[4]], main="Fourth branch of lower tree with cut at h=10")
 ```
 
 
@@ -574,17 +616,12 @@ class(M) <- "numeric"
 # with vegdist from Bray to seroeson: add binary = T 
 dist_FloristicSurvey <- vegdist(M, method = "bray", binary = T)
 #The metaMDS analysis could have done the distance matrix internally but i would rather control it since i have presence/abscence
-meta.nmds.FloristicSurvey <- metaMDS(dist_FloristicSurvey)
-# Non convergence with only 20 tries. lets increase that then
+
+
 meta.nmds.FloristicSurvey2D <- metaMDS(dist_FloristicSurvey, k=2, trymax = 1000)
+
 str(meta.nmds.FloristicSurvey2D)
 stressplot(meta.nmds.FloristicSurvey2D)
-# Im getting a little above a stress of 0.2 (0.207), which isnt ideal, ill try it again with 3 dimension
-# A good rule of thumb: stress < 0.05 provides an excellent representation in reduced dimensions, < 0.1 is great, < 0.2 is good/ok, and stress < 0.3 provides a poor representation.
-meta.nmds.FloristicSurvey3D <- metaMDS(dist_FloristicSurvey, k=3, trymax = 1000)
-str(meta.nmds.FloristicSurvey3D)
-# stress is lower! 0.146
-stressplot(meta.nmds.FloristicSurvey3D)
 
 # envfit for the 2D
 FloristicSurvey_envfit <- envfit(meta.nmds.FloristicSurvey2D, env = GM_coverage_df, perm = 999) #standard envfit
@@ -624,27 +661,20 @@ NMDS.mean.FloristicSurvey=aggregate(FloristicSurvey.NMDS.data[ ,c("NMDS1", "NMDS
 
 ## finally plotting.
 mult <- 1 #multiplier for the arrows and text for envfit below. You can change this and then rerun the plot command.
-FloristicSurvey.nmds.gg1 <- ggplot(data = FloristicSurvey.NMDS.data, aes(y = NMDS2, x = NMDS1))+ #sets up the plot. brackets around the entire thing to make it draw automatically
-    geom_path(data = df_ell.FSurvey.GM_coverage, aes(x = NMDS1, y = NMDS2, group = df_ell.FSurvey.GM_coverage$GM_coverage, alpha=df_ell.FSurvey.GM_coverage$GM_coverage))+ #this is the ellipse, seperate ones by Site. If you didn't change the "alpha" (the shade) then you need to keep the "group 
-    scale_alpha_manual(guide = FALSE,values=c(0.3, 0.5, 0.6, 0.7, 0.8, 0.9))+ #sets the shade for the ellipse
-    geom_point( aes(shape = FloristicSurvey.NMDS.data$GM_Coverage), size = 1) + #puts the site points in from the ordination, shape determined by site, size refers to size of point
-    # geom_text(data=spps2, aes(x=spps2$NMDS1, y=spps2$NMDS2, label=species), size = 3.3, hjust=1.1)+ #labelling the species. hjust used to shift them slightly from their points
-    #annotate("text",x = NMDS.mean$NMDS1,y = NMDS.mean$NMDS2,label=NMDS.mean$group) + #labels for the centroids - I haven't used this since we have a legend. but you could also dithc the legend, but plot will get v messy
-    #geom_segment(data = env.scores.FloristicSurvey,
-    #             aes(x = 0, xend = mult*env.scores.FloristicSurvey$NMDS1, y = 0, yend = mult*env.scores.FloristicSurvey$NMDS2),
-    #             arrow = arrow(length = unit(0.25, "cm")), colour = "grey") + #arrows for envfit.  doubled the length for similarity to the plot() function. NB check ?envfit regarding arrow length if not familiar with lengths
-    #geom_text(data = env.scores.FloristicSurvey, #labels the environmental variable arrows * "mult" as for the arrows
-    #          aes(x = mult*env.scores.FloristicSurvey$NMDS1, y = mult*env.scores.FloristicSurvey$NMDS2, label=env.variables),
-    #          size = 5,
-    #          hjust = -0.5)+
-    scale_shape_manual(values = c(1,8,19,5,6,7))+ #sets the shape of the plot points instead of using whatever ggplot2 automatically provides
-    coord_cartesian(xlim = c(-1,1.5))+  ## NB this changes the visible area of the plot only (this is a good thing, apparently). Can also specify ylim. Here in case you want to set xaxis manually.
-    theme_simple()
+FloristicSurvey.nmds.gg1 <- ggplot(data = FloristicSurvey.NMDS.data, aes(y = NMDS2, x = NMDS1))+ 
+    geom_path(data = df_ell.FSurvey.GM_coverage, aes(x = NMDS1, y = NMDS2, group = df_ell.FSurvey.GM_coverage$GM_coverage, alpha=df_ell.FSurvey.GM_coverage$GM_coverage))+ 
+    scale_alpha_manual(guide = FALSE,values=c(0.3, 0.5, 0.6, 0.7))+ 
+    geom_point( aes(shape = FloristicSurvey.NMDS.data$GM_Coverage), size = 1)+ 
+    annotate("text",x = NMDS.mean.FloristicSurvey$NMDS1,y = NMDS.mean.FloristicSurvey$NMDS2,label=NMDS.mean.FloristicSurvey$group)+ 
+    geom_segment(data = env.scores.FloristicSurvey,aes(x = 0, xend = mult*env.scores.FloristicSurvey$NMDS1, y = 0, yend = mult*env.scores.FloristicSurvey$NMDS2),arrow = arrow(length = unit(0.25, "cm")), colour = "grey")+ 
+    geom_text(data = env.scores.FloristicSurvey,aes(x = mult*env.scores.FloristicSurvey$NMDS1, y = mult*env.scores.FloristicSurvey$NMDS2, label=env.variables),size = 5, hjust = -0.5)+ 
+    scale_shape_manual(values = c(1,8,19,5))+ 
+    coord_cartesian(xlim = c(-1,1.5)) 
 ```
 
 # Soil Characteristics
 
-```{r}
+```{r, Soil Characteristics}
 Soil_characteristics$Location<-as.factor(Soil_characteristics$Location)
 GLmodel_soil <- glm(Location ~Agg_stability*C_percent*N_percent,family=binomial(link='logit'),data=Soil_characteristics)
 summary(GLmodel_soil)
@@ -654,9 +684,16 @@ Soil_characteristics2<-rename(Soil_characteristics2, c("Soil_characteristics.Pop
 df2 <- reshape2::melt(Soil_characteristics2, id.var=c("Population","Location"))
 df2 <- rename(df2, c("value"="Log_value"))
 
-p <- ggplot(Soil_characteristics, aes(Location,pH,fill=Location))
-p + geom_boxplot() +
+par(mfrow=c(2,2))
+ggplot(Soil_characteristics, aes(Location,Agg_stability,fill=Location))+ geom_boxplot() +
   theme_simple()
+ggplot(Soil_characteristics, aes(Location,pH,fill=Location))+ geom_boxplot() +
+  theme_simple()
+ggplot(Soil_characteristics, aes(Location,C_percent,fill=Location))+ geom_boxplot() +
+  theme_simple()
+ggplot(Soil_characteristics, aes(Location,N_percent,fill=Location))+ geom_boxplot() +
+  theme_simple()
+
 ```
 # Histology data Analysis
 
