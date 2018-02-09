@@ -54,6 +54,7 @@ library(ggbiplot)
 library(pvclust)
 library(vegan)
 library(ggbiplot)
+library(factoextra)
 ```
 
 
@@ -265,11 +266,21 @@ colnames(PlantLength)[1] <- "Population"
 PlantLength$Population<-as.factor(PlantLength$Population)
 PlantLength$Location<-as.factor(PlantLength$Location)
 
+FloristicSurvey$Population<-as.factor(FloristicSurvey$Population) # Make the population a factor and not an interger
+FloristicSurvey[is.na(FloristicSurvey)] <- 0
+sum(row.has.na <- apply(FloristicSurvey, 1, function(x){any(is.na(x))}))
+
 ```
 
 ### Root size
 ```{r}
 Root_size <-read.csv("CSV/Root_size.csv")
+Root_size$pop<-gsub("^([0-9]+)[I,O][A-Z]+.*","\\1",Root_size$indiv)
+Root_size$location<-gsub("^[0-9]+([I,O])[A-Z]+.*","\\1",Root_size$indiv)
+Root_size$species<-gsub("^[0-9]+[I,O]([A-Z]+).*","\\1",Root_size$indiv)
+Root_size$location<-as.factor(Root_size$location)
+Root_size$species<-as.factor(Root_size$species)
+Root_size$pop<-as.factor(Root_size$pop)
 ```
 
 ### Variable descriptions
@@ -465,24 +476,6 @@ confint(mod1)
 
 ## Floristic composition and GM presence
 
-### PCA
-```{r}
-colnames(FloristicSurvey)[1] <- "Population" # population loads in weirdly, I am just arranging it to not have quotes around. so odd
-FloristicSurvey$Population<-as.factor(FloristicSurvey$Population) # Make the population a factor and not an interger
-FloristicSurvey[is.na(FloristicSurvey)] <- 0
-sum(row.has.na <- apply(FloristicSurvey, 1, function(x){any(is.na(x))}))
-
-# Start the PCA
-PC <- prcomp(FloristicSurvey[,4:ncol(FloristicSurvey)], center=T)
-summary(PC)
-screeplot(PC)
-
-# Variation explaination
-100*sum(summary(PC)[[1]][1])/sum(summary(PC)[[1]]) #explained by just PC1
-100*sum(summary(PC)[[1]][1:2])/sum(summary(PC)[[1]])#explained by PC1 and PC2
-n=25
-100*sum(summary(PC)[[1]][1:n])/sum(summary(PC)[[1]])
-```
 
 ### Linear discriminate analysis
 ```{r}
@@ -661,16 +654,74 @@ NMDS.mean.FloristicSurvey=aggregate(FloristicSurvey.NMDS.data[ ,c("NMDS1", "NMDS
 
 ## finally plotting.
 mult <- 1 #multiplier for the arrows and text for envfit below. You can change this and then rerun the plot command.
-FloristicSurvey.nmds.gg1 <- ggplot(data = FloristicSurvey.NMDS.data, aes(y = NMDS2, x = NMDS1))+ 
-    geom_path(data = df_ell.FSurvey.GM_coverage, aes(x = NMDS1, y = NMDS2, group = df_ell.FSurvey.GM_coverage$GM_coverage, alpha=df_ell.FSurvey.GM_coverage$GM_coverage))+ 
-    scale_alpha_manual(guide = FALSE,values=c(0.3, 0.5, 0.6, 0.7))+ 
-    geom_point( aes(shape = FloristicSurvey.NMDS.data$GM_Coverage), size = 1)+ 
-    annotate("text",x = NMDS.mean.FloristicSurvey$NMDS1,y = NMDS.mean.FloristicSurvey$NMDS2,label=NMDS.mean.FloristicSurvey$group)+ 
-    geom_segment(data = env.scores.FloristicSurvey,aes(x = 0, xend = mult*env.scores.FloristicSurvey$NMDS1, y = 0, yend = mult*env.scores.FloristicSurvey$NMDS2),arrow = arrow(length = unit(0.25, "cm")), colour = "grey")+ 
-    geom_text(data = env.scores.FloristicSurvey,aes(x = mult*env.scores.FloristicSurvey$NMDS1, y = mult*env.scores.FloristicSurvey$NMDS2, label=env.variables),size = 5, hjust = -0.5)+ 
-    scale_shape_manual(values = c(1,8,19,5))+ 
-    coord_cartesian(xlim = c(-1,1.5)) 
+ggplot(data = FloristicSurvey.NMDS.data, aes(y = NMDS2, x = NMDS1))+ 
+    geom_path(data = df_ell.FSurvey.GM_coverage, aes(x = NMDS1, y = NMDS2, group = df_ell.FSurvey.GM_coverage$GM_coverage, color=df_ell.FSurvey.GM_coverage$GM_coverage))+ 
+    geom_point( aes(color = FloristicSurvey.NMDS.data$GM_Coverage), size = 1)+ 
+    scale_color_manual(values = c(14,5,19,2))+ 
+    coord_cartesian(xlim = c(-1,1.5))+
+  theme_simple()+ guides(color=guide_legend("Garlic Mustard Coverage"))
 ```
+### PCA
+```{r}
+FloristicSurvey<-FloristicSurvey[,-56]
+FloristicSurvey.pca <- prcomp(FloristicSurvey[,4:(ncol(FloristicSurvey))],center = TRUE) 
+summary(FloristicSurvey.pca)
+fviz_eig(FloristicSurvey.pca,addlabels=TRUE,hjust = -0.3)+theme_simple()
+
+round(FloristicSurvey.pca$sdev^2/sum(FloristicSurvey.pca$sdev^2)*100,2)
+# About 25% explained by my first 2 eigenvectors. 50% by the first 6.
+```
+### Modeling (redundancy analysis)
+species comp ~ GMcov * pop + soil characteristics inside and outside as covariates? 
+```{r}
+
+species<-names(FloristicSurvey[4:(length(FloristicSurvey))])
+SpeciesGMCorrelation <- data.frame(matrix(ncol = 3, nrow = 0))
+names(SpeciesGMCorrelation)<-c("Species", "PValue","signif")
+
+for(i in 4:(length(FloristicSurvey))){
+  SpeciesGMCorrelation[i-3,1]<-names(FloristicSurvey[i])
+  SpeciesGMCorrelation[i-3,2]<-summary(glm(FloristicSurvey[,i]~GM_Coverage, data=FloristicSurvey, family = binomial))$coefficients[8]
+}
+for(i in 1:length(species)) if( SpeciesGMCorrelation[i,2] <= 0.05){
+  SpeciesGMCorrelation[i,3]<-c("TRUE")
+}else{
+  SpeciesGMCorrelation[i,3]<-c("FALSE")
+  }
+length(SpeciesGMCorrelation$signif[SpeciesGMCorrelation[,3]==TRUE])/length(SpeciesGMCorrelation$signif)*100
+SpeciesGMCorrelation$Species[SpeciesGMCorrelation[,3]==TRUE]
+
+
+# Redundancy analysis
+sp.comp <- FloristicSurvey[,4:(length(FloristicSurvey))]
+var <- FloristicSurvey[,1:3]
+var$Quadrat <- as.character(var$Quadrat)
+for(i in 1:length(var$Quadrat))if(var$Population[i] == "7"){
+  var$Quadrat[i]<-paste("7",var$Quadrat[i],sep="")
+}else if(var$Population[i] == "3"){
+  var$Quadrat[i]<-paste("3",var$Quadrat[i],sep="")
+}else if(var$Population[i] == "14"){
+  var$Quadrat[i]<-paste("14",var$Quadrat[i],sep="")
+}else if(var$Population[i] == "13"){
+  var$Quadrat[i]<-paste("13",var$Quadrat[i],sep="")
+}else if(var$Population[i] == "1"){
+  var$Quadrat[i]<-paste("1",var$Quadrat[i],sep="")
+}
+
+var$Population <- as.factor(var$Population)
+
+formulaRDA <- rda(sp.comp ~ GM_Coverage + Condition(Population) , data=var)
+
+formulaRDA <- rda(sp.comp ~ GM_Coverage , data=var)
+head(summary(formulaRDA))
+RsquareAdj(formulaRDA)
+plot(formulaRDA, scaling = 2)
+anova.cca(formulaRDA,step=1000)
+anova.cca(formulaRDA,by="axis", step=1000)
+
+
+```
+*Note that I redid this with GM_coverage_catogory and i didnt find ANY significance!
 
 # Soil Characteristics
 
@@ -693,7 +744,13 @@ ggplot(Soil_characteristics, aes(Location,C_percent,fill=Location))+ geom_boxplo
   theme_simple()
 ggplot(Soil_characteristics, aes(Location,N_percent,fill=Location))+ geom_boxplot() +
   theme_simple()
+Soil_characteristics$Population<-as.factor(Soil_characteristics$Population)
 
+GLMER_soil <- glmer(Location~scale(Agg_stability)*scale(C_percent)*scale(N_percent)+(1|Population),family=binomial(link='logit'),data=Soil_characteristics)
+summary(GLMER_soil)
+options(na.action = "na.fail")
+dredge(GLMER_soil) 
+# A model with nothing is best...
 ```
 # Histology data Analysis
 
@@ -945,9 +1002,42 @@ ggplot(data = ndata,aes(x = 1-None.Myc, y = 100-None.Path, color=location))+
   labs(x = "Mycorrhizal colonization", y="Lesions")
 ```
 
-# Combining histology and field data
+## Bring things together
+
+```{r}
+Soil_characteristics$Location<-as.character(Soil_characteristics$Location)
+for(i in 1:length(Soil_characteristics$Location))if(Soil_characteristics[i,2]=="in"){
+   Soil_characteristics[i,2]<-"I"
+}else{
+  Soil_characteristics[i,2]<-"O"
+}
+Soil_characteristics$Location<-as.factor(Soil_characteristics$Location)  
+names(Soil_characteristics)[1:2]<-c("pop","location")
+
+fulldata <- merge(Soil_characteristics, ndata, by=c("pop","location"))
+# note i used the SCALED dataframe for the total histology
+fulldata <- merge(fulldata, Root_size, by=c("indiv","location","pop","species"))
+for(i in 1:length(fulldata$indiv)){
+fulldata$mean_rootsize[i]<-(sum(fulldata[i,20:29])/length(fulldata[,20:29]))
+}
+fulldata<-fulldata[,-c(20:29)]
+
+binlesionF<-cbind(fulldata$None.Path,100-fulldata$None.Path)
+binmycorrF<-cbind(fulldata$None.Myc,100-fulldata$None.Myc)
+binherbivoryF<-cbind(fulldata$None.Herb,100-fulldata$None.Herb)
 
 
+fulldata$pop<-as.factor(fulldata$pop)
+# model myc_lesion 
+mod1 <- glmmadmb(binlesionF ~ scale(None.Myc)  * scale(mean_rootsize) * species + scale(pH) + scale(Agg_stability) + scale(N_percent) + scale(C_percent) + (1 | pop), data = fulldata,family = "binomial")
+summary(mod1)
+mod1.dredge <- dredge(mod1)
+
+# model myc 
+mod2 <- glmmadmb(binmycorrF ~ scale(mean_rootsize) * species + scale(pH) + scale(Agg_stability) + scale(N_percent) + scale(C_percent) + (1 | pop) , data = fulldata,family = "binomial")
+summary(mod2)
+mod2.dredge <- dredge(mod2)
+```
 
 # Molecular data Analysis
 
