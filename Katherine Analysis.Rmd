@@ -1,5 +1,5 @@
 ---
-title: "MSc Statistical Rob correction -Jan29"
+title: "Katherine Analysis"
 output:
   html_document:
     df_print: paged
@@ -7,8 +7,6 @@ output:
   html_notebook:
     highlight: tango
     theme: cerulean
-    toc: yes
-  word_document:
     toc: yes
 ---
 # Housekeeping
@@ -578,7 +576,6 @@ plot(cut(fitd, h=10)$lower[[3]], main="Third branch of lower tree with cut at h=
 plot(cut(fitd, h=10)$lower[[4]], main="Fourth branch of lower tree with cut at h=10")
 ```
 
-
 ### NMDS 
 ```{r}
 # https://jonlefcheck.net/2012/10/24/nmds-tutorial-in-r/
@@ -649,6 +646,8 @@ ggplot(data = FloristicSurvey.NMDS.data, aes(y = NMDS2, x = NMDS1))+
     coord_cartesian(xlim = c(-1,1.5))+
   theme_simple()+ guides(color=guide_legend("Garlic Mustard Coverage"))
 ```
+
+
 ### PCA
 ```{r}
 FloristicSurvey<-FloristicSurvey[,-56]
@@ -709,6 +708,8 @@ anova.cca(formulaRDA,by="axis", step=1000)
 
 
 ```
+
+
 *Note that I redid this with GM_coverage_catogory and i didnt find ANY significance!
 
 # Soil Characteristics
@@ -740,6 +741,8 @@ options(na.action = "na.fail")
 dredge(GLMER_soil) 
 # A model with nothing is best...
 ```
+
+
 # Histology data Analysis
 
 # Histology Data exploration
@@ -1034,6 +1037,19 @@ mod2.dredgegood <- subset(mod2.dredge,mod2.dredge$delta<=7)
 
 
 ## Hypothesis 2: Mycorrhiza_div ~ Pathoge_div
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
