@@ -463,6 +463,8 @@ AICres <- model.sel(mod1,mod2,mod3)
 r.squaredLR(mod1)
 summary(mod1)
 confint(mod1)
+
+
 ```
 
 
@@ -475,13 +477,15 @@ confint(mod1)
 ```{r}
 # Discriminant function analysis is used (general LDA format) because i have a cat. dependent and a binary independent. (it needs binary or continuous!)
 # you might have to bin covers because it only works with categorical, so 0-5% none, 6-40 low etc.
-FloristicSurvey$GM_Coverage_category<-cut(FloristicSurvey$GM_Coverage, c(-Inf,25,50,75,100), labels = c("None", "Med_Low", "Med_High", "Overtaken"))
+FloristicSurvey$GM_Coverage_category<-cut(FloristicSurvey$GM_Coverage, c(-Inf,25,50,75,100), labels = c("None to Low","Medium", "High", "Overtaken"))
 table(FloristicSurvey$GM_Coverage_category)
 # [0-20] None
-# ]20-50] Medium low
-# ]50-80] Medium high
+# ]20-40] low
+# ]40-60] Medium 
+# ]60-80] high
 # ]80-100] Overtaken
 ```
+
 
 ```{r}
 #LDA
@@ -521,12 +525,16 @@ scalvec<-data.frame(FloristicSurveyLDA$scaling)
 FloristicSurveyLDAval <- data.frame(predict(FloristicSurveyLDA)$x)
 
 # Plot results
-ggplot(data=FloristicSurveyLDAval,aes(x=LD1,y=LD2,group=FloristicSurveysmall$GM_Coverage_category))+
+LDA_of_Floristic_Composition<-ggplot(data=FloristicSurveyLDAval,aes(x=LD1,y=LD2,group=FloristicSurveysmall$GM_Coverage_category))+
   stat_ellipse(geom="polygon",aes(colour=FloristicSurveysmall$GM_Coverage_category),fill=NA,size=1.2,alpha=0.3)+
   stat_ellipse(geom="polygon",aes(fill=FloristicSurveysmall$GM_Coverage_category,colour=FloristicSurveysmall$GM_Coverage_category),size=1.2,alpha=0.3)+
   geom_point(aes(shape=FloristicSurveysmall$GM_Coverage_category,fill=FloristicSurveysmall$GM_Coverage_category,colour=FloristicSurveysmall$GM_Coverage_category),size=I(4),alpha=I(0.8))+
-  xlab("LD Axis 1")+ylab("LD Axis 2")+theme_simple() +
-  theme(legend.title=element_blank())
+  xlab("LD Axis 1")+ylab("LD Axis 2")+
+  ggtitle("LDA of Floristic Composition \n in a Garlic Mustard Population")+
+  theme_bw()+
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 12))+scale_color_manual(values=c("green3"," blue3","orange3","red3"))+ scale_fill_manual(values=c("green3","blue3","orange3","red3"))
+ggsave(file="LDA_of_Floristic_Composition.epx", plot=LDA_of_Floristic_Composition, width=10, height=8)
+
 
 #test significance of axis
 anova(lm(FloristicSurveyLDAval$LD1~FloristicSurveysmall$GM_Coverage_category))
@@ -568,7 +576,7 @@ fitd <- as.dendrogram(fit)
 FloristicSurvey$GM_Coverage_category<-cut(FloristicSurvey$GM_Coverage, c(-Inf,5,30,50,70,95,100), labels = c("None", "Low", "Med_Low", "Med_High", "High", "Overtaken"))
 
 par(mfrow=c(3,2))
-plot(fit,cex=0.4,main="Clustering with populations")
+plot(fit,cex=0.4,main="Clustering with coverage")
 plot(cut(fitd, h=10)$upper, main="Upper tree of cut at h=10")
 plot(cut(fitd, h=10)$lower[[1]], main="First branch of lower tree with cut at h=10")
 plot(cut(fitd, h=10)$lower[[2]], main="Second branch of lower tree with cut at h=10")
@@ -581,7 +589,7 @@ plot(cut(fitd, h=10)$lower[[4]], main="Fourth branch of lower tree with cut at h
 # https://jonlefcheck.net/2012/10/24/nmds-tutorial-in-r/
 # https://oliviarata.wordpress.com/2014/04/17/ordinations-in-ggplot2/
 #Make a matrix with no row or column equal to 0 (do not enclude the env variable (GM COVERAGE))
-FloristicSurvey$GM_Coverage_category<-cut(FloristicSurvey$GM_Coverage, c(-Inf,25,50,75,100), labels = c("Low", "Med_Low", "Med_High", "High"))
+FloristicSurvey$GM_Coverage_category<-cut(FloristicSurvey$GM_Coverage, c(-Inf,25,50,75,100), labels = c("None to Low","Medium", "High", "Overtaken"))
 table(FloristicSurvey$GM_Coverage_category)
 M <- as.matrix(FloristicSurvey[1:198,4:56])
 M[is.na(M)] <- 0
@@ -595,7 +603,6 @@ class(M) <- "numeric"
 
 # with vegdist from Bray to seroeson: add binary = T 
 dist_FloristicSurvey <- vegdist(M, method = "bray", binary = T)
-#The metaMDS analysis could have done the distance matrix internally but i would rather control it since i have presence/abscence
 meta.nmds.FloristicSurvey2D <- metaMDS(dist_FloristicSurvey, k=2, trymax = 1000)
 
 str(meta.nmds.FloristicSurvey2D)
@@ -644,20 +651,25 @@ ggplot(data = FloristicSurvey.NMDS.data, aes(y = NMDS2, x = NMDS1))+
     geom_point( aes(color = FloristicSurvey.NMDS.data$GM_Coverage), size = 1)+ 
     scale_color_manual(values = c(14,5,19,2))+ 
     coord_cartesian(xlim = c(-1,1.5))+
-  theme_simple()+ guides(color=guide_legend("Garlic Mustard Coverage"))
+  theme_simple()+ guides(color=guide_legend("Garlic Mustard Coverage"))+
+  ggtitle("LDA of Floristic Composition \n in a Garlic Mustard Population")+
+  theme_bw()+
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 12))+scale_color_manual(values=c("green3"," blue3","orange3","red3"))+ scale_fill_manual(values=c("green3","blue3","orange3","red3"))
+ggsave(file="LDA_of_Floristic_Composition.epx", plot=LDA_of_Floristic_Composition, width=10, height=8)
 ```
 
 
 ### PCA
 ```{r}
-FloristicSurvey<-FloristicSurvey[,-56]
-FloristicSurvey.pca <- prcomp(FloristicSurvey[,4:(ncol(FloristicSurvey))],center = TRUE) 
+FloristicSurvey.pca <- prcomp(FloristicSurvey[,4:(ncol(FloristicSurvey)-1)],center = TRUE) 
 summary(FloristicSurvey.pca)
-fviz_eig(FloristicSurvey.pca,addlabels=TRUE,hjust = -0.3)+theme_simple()
-
+factoextra::fviz_eig(FloristicSurvey.pca,addlabels=TRUE,hjust = -0.3)+theme_simple()
+library(ggfortify)
+autoplot(FloristicSurvey.pca, data = FloristicSurvey, colour = "GM_Coverage_category", label.size = 3)+theme_simple()
 round(FloristicSurvey.pca$sdev^2/sum(FloristicSurvey.pca$sdev^2)*100,2)
 # About 25% explained by my first 2 eigenvectors. 50% by the first 6.
 ```
+
 ### Modeling (redundancy analysis)
 species comp ~ GMcov * pop + soil characteristics inside and outside as covariates? 
 ```{r}
@@ -696,6 +708,8 @@ for(i in 1:length(var$Quadrat))if(var$Population[i] == "7"){
 }
 
 var$Population <- as.factor(var$Population)
+var$GM_Coverage<-as.numeric(var$GM_Coverage)
+sp.comp<-as.matrix(sp.comp)
 
 formulaRDA <- rda(sp.comp ~ GM_Coverage + Condition(Population) , data=var)
 
