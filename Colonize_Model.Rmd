@@ -1,0 +1,50 @@
+---
+title: "Root Colonization Model"
+author: "Robert I. Colautti"
+date: "March 15, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Colonization of roots by _k_ taxa at each of _N_ root intersections can be modelled as the joint probability of _k_ Bernoulli variables. A simple example is the joint probability of mycorrhizal colonization (Cm) and pathogen colonization (Cp). The joint probabilities are:
+
+$$ P(C_m=n_m, C_p=n_p) $$
+
+$$= P(C_p=n_p | C_m=n_m) \cdot P(C_m=n_m)$$ 
+
+$$= P(C_m=n_m | C_p=n_p) \cdot P(C_p=n_p)) $$
+
+where n~m~ and n~p~ are 0 or 1. 
+
+Now consider the four possible outcomes:
+
+$$A. \space Both := P(C_m = 1 , C_p = 1)$$
+
+$$B. \space Mycorrhizae \space Only := P(C_m = 1 , C_p = 1)$$
+
+$$C. \space Pathogens \space Only := P(C_m = 1 , C_p = 1)$$ 
+
+$$D. \space Neither := P(C_m = 0, C_p = 0)$$
+
+The variance-covariance matrix for mycorrhizae (m) and pathogens (p) species is:
+
+$$V_m = (A + B)(1 - (A + B))$$
+
+$$V_p = (A + C)(1 - (A + C))$$
+
+$$Cov_{mp} = A - (A + B)(A + C)$$
+
+The correlation coefficient between species is:
+
+$$\frac {Cov_{mp}}{\sqrt{V_m \cdot V_p}} $$
+
+$$= \frac {A - (A + B)(A + C)}{\sqrt {(A + B)(1 - (A + B))(A + C)(1 - (A + C))}}$$
+
+
+
+
+
