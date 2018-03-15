@@ -11,6 +11,12 @@
 Bcor<-function(x=NA,ind=ind,s1=s1,s2=s2,coef=NA){
   # Check if user wants covariance matrix or correlation coefficient
   
+  # Calculate the frequency of each possible outcome
+  A<-
+  B<-
+  C<-
+  D<-
+  
   # Calculate variances, covariance and correlation
   V1<- 
   V2<-
@@ -29,10 +35,15 @@ Bcor<-function(x=NA,ind=ind,s1=s1,s2=s2,coef=NA){
 
 # Example:
 rootdata<-data.frame(ID=c(rep("A1",100),rep("B1",100)),
-                     myc=sample(0:1,100,prob=c(0.8,0.2),replace=T),
-                     path=sample(0:1,100,prob=c(0.8,0.2),replace=T))
+                     myc=sample(0:1,200,prob=c(0.8,0.2),replace=T),
+                     path=sample(0:1,200,prob=c(0.8,0.2),replace=T))
 head(rootdata)
 
-Bcor(rootdata,ind=ID,s1=myc,s2=path,coef=cor)
 Bcor(rootdata,ind=ID,s1=myc,s2=path,coef=cov)
+
+Bcor(rootdata,ind=ID,s1=myc,s2=path,coef=cor)
+
+for(i in levels(rootdata$ID)){
+  print(paste(i,round(cor(rootdata$myc[rootdata$ID==i],rootdata$path[rootdata$ID==i]),3)))
+}
 
