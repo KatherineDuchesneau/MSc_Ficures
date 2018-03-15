@@ -35,8 +35,12 @@ This section contains all the necessary details about the R version and package 
   * `fitdistrplus` package version `r packageVersion("fitdistrplus")`
   * `mefa` package version `r packageVersion("mefa")`
   * `library(devtools)` and `install_github("vqv/ggbiplot")` package version `r packageVersion("ggbiplot")`
-  * also requires [rtools](https://cran.r-project.org/bin/windows/Rtools/)
-    
+  * `vegan` package version `r packageVersion("vegan")`
+  * `glmmADMB` package version `r packageVersion("glmmADMB")`
+  * `car` package version `r packageVersion("car")`
+  * `factoextra` package version `r packageVersion("factoextra")`
+  * `pvclust` package version `r packageVersion("pvclust")`
+
 ### Load Packages and Functions
 
 ```{r Load_packages and functions, message=FALSE, warning=FALSE}
@@ -55,6 +59,8 @@ library(pvclust)
 library(vegan)
 library(ggbiplot)
 library(factoextra)
+library(glmmADMB)
+library(car)
 ```
 
 
@@ -427,27 +433,17 @@ There will be a negative correlation between mycorrhizal and fungal pathogen div
 row.has.na <- apply(PlantLength, 1, function(x){any(is.na(x))})
 sum(row.has.na) 
 PlantLength.filtered <- PlantLength[!row.has.na,]# Removed all the rows with NAs
+PlantLength.filtered$Pop <- as.factor(PlantLength.filtered$Pop)
 
 car::qqp(PlantLength$Length_plant, "norm")
 shapiro.test(PlantLength$Length_plant)
-
-par(mfrow = c(1,1))
-descdist(PlantLength.filtered$Length_plant, discrete = FALSE, boot = 1000)
-f1g <- fitdist(PlantLength.filtered$Length_plant, "lnorm") 
-f2g <- fitdist(PlantLength.filtered$Length_plant, "norm") 
-f3g <- fitdist(PlantLength.filtered$Length_plant, "gamma")
-f4g <- fitdist(PlantLength.filtered$Length_plant, "weibull")
-f1g$aic
-f2g$aic
-f3g$aic
-f4g$aic
 
 mod1<-lm(Length_plant~Location*Species, data=PlantLength.filtered)
 
 bc<-boxcox(mod1, lambda = seq(-2, 2, 0.1))
 lambda <- bc$x[which.max(bc$y)]
 PlantLength.filtered <- cbind(PlantLength.filtered, ((PlantLength.filtered$Length_plant^lambda)-1)/lambda)
-names(PlantLength.filtered)[5] <- "Yprime"
+names(PlantLength.filtered)[length(PlantLength.filtered)] <- "Yprime"
 mod1BC <- lm(Yprime~Location*Species, data=PlantLength.filtered) 
 
 par(mfrow = c(2, 2))
@@ -588,35 +584,27 @@ plot(cut(fitd, h=10)$lower[[4]], main="Fourth branch of lower tree with cut at h
 # https://jonlefcheck.net/2012/10/24/nmds-tutorial-in-r/
 # https://oliviarata.wordpress.com/2014/04/17/ordinations-in-ggplot2/
 #Make a matrix with no row or column equal to 0 (do not enclude the env variable (GM COVERAGE))
-M <- as.matrix(FloristicSurvey[1:198,4:55])
-M[is.na(M)] <- 0
-rownames(M) <- FloristicSurvey$Population
-which( colSums(M)==0 )
-which( rowSums(M)==0 )
-#Now that you know which column must be taken out, redo the matrix but with the last column, then remove the rows and columns =0
-#I did this because the previous method doesnt work with the characters in the GM_COVERAGE column.
+FloristicSurvey$GM_Coverage_category<-cut(FloristicSurvey$GM_Coverage, c(-Inf,25,50,75,100), labels = c("Low", "Med_Low", "Med_High", "High"))
+table(FloristicSurvey$GM_Coverage_category)
 M <- as.matrix(FloristicSurvey[1:198,4:56])
 M[is.na(M)] <- 0
 rownames(M) <- FloristicSurvey$Population
+M<-M[-c(130,133),]
 M<-M[,-45]
-M<-M[-130,]
-M<-M[-133,]
-M<-M[-132,]
-# Now I'll make the env column a vector on its own, but the previous colde now allows it to be in the same order as the matrix im using for distances.
 GM_coverage_df <- data.frame(M[,52])
 M<-M[,-52]
 class(M) <- "numeric"
+
+
 # with vegdist from Bray to seroeson: add binary = T 
 dist_FloristicSurvey <- vegdist(M, method = "bray", binary = T)
 #The metaMDS analysis could have done the distance matrix internally but i would rather control it since i have presence/abscence
-
-
 meta.nmds.FloristicSurvey2D <- metaMDS(dist_FloristicSurvey, k=2, trymax = 1000)
 
 str(meta.nmds.FloristicSurvey2D)
 stressplot(meta.nmds.FloristicSurvey2D)
 
-# envfit for the 2D
+
 FloristicSurvey_envfit <- envfit(meta.nmds.FloristicSurvey2D, env = GM_coverage_df, perm = 999) #standard envfit
 FloristicSurvey_envfit
 
@@ -1032,11 +1020,12 @@ fulldata$pop<-as.factor(fulldata$pop)
 mod1 <- glmmadmb(binlesionF ~ scale(None.Myc)  * scale(mean_rootsize) * species + scale(pH) + scale(Agg_stability) + scale(N_percent) + scale(C_percent) + (1 | pop), data = fulldata,family = "binomial")
 summary(mod1)
 mod1.dredge <- dredge(mod1)
-
+mod1.dredgegood <- subset(mod1.dredge,mod1.dredge$delta<=7)
 # model myc 
 mod2 <- glmmadmb(binmycorrF ~ scale(mean_rootsize) * species + scale(pH) + scale(Agg_stability) + scale(N_percent) + scale(C_percent) + (1 | pop) , data = fulldata,family = "binomial")
 summary(mod2)
 mod2.dredge <- dredge(mod2)
+mod2.dredgegood <- subset(mod2.dredge,mod2.dredge$delta<=7)
 ```
 
 # Molecular data Analysis
