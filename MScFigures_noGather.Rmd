@@ -296,6 +296,7 @@ Total scores:
 # Reviewing the hypothesis
 
 ## Histology data Hypothesis
+
 ### Hypothesis 1
 
 Mycorrhizal colonization protects roots from lesions and herbivory.
