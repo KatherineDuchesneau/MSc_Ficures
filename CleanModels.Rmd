@@ -1,0 +1,1068 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+  html_notebook:
+    highlight: tango
+    theme: cerulean
+    toc: yes
+---
+
+
+#Housekeeping
+
+
+##Load packages
+
+
+```{r Load_packages and functions, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lme4)
+library(MASS)
+library(MuMIn)
+library(emmeans)
+library(boot)
+library(brms)
+library(loo)
+library(fitdistrplus)
+library(mefa)
+library(ggbiplot)
+library(pvclust)
+library(vegan)
+library(ggbiplot)
+library(factoextra)
+library(glmmADMB)
+library(car)
+library(effects)
+library(coefplot2)
+library(bbmle)
+library(gridExtra)
+library(corrplot)
+library(ade4)
+library(lmtest)
+```
+
+
+##Load costum functions
+
+
+```{r costum functions}
+residfit <- function (model, col="black") {
+  f<-fitted(model)
+  r<-resid(model, type='pearson')
+  plot(f, r, col=col, main='Residuals vs. Fitted')
+  L1<-loess(r~f)
+  fvec = seq(min(f),max(f),length.out=1000)
+  lines(fvec,predict(L1,fvec),col='red')
+}
+
+#do the same for the Scale-Location plot
+scaleloc <- function(model,col="black") {
+  f <- fitted(model)
+  r <- sqrt(abs(residuals(model, type='pearson'))) #transformed pearson residuals
+  plot(f,r,col=col, main='Scale-Location Plot') 
+  L1 <- loess(r~f)
+  fvec = seq(min(f),max(f),length.out=1000)
+  lines(fvec,predict(L1,fvec),col=2)
+}
+```
+
+
+##Load data
+
+
+### Load/ Modify data: Co-occurence
+
+
+```{r Introduce co-occurence dataset, message=FALSE, warning=FALSE, echo=FALSE}
+mdata <- read.csv("CSV/Assessing_Oct_20.csv",stringsAsFactors=F)
+indiv <- mdata$CODE[!mdata$CODE==""]
+tdata <- mdata[grep("[0-9]+",mdata$Cross),]
+nrow(tdata)/length(indiv)
+
+# This is not the same because some individuals just had the totals not the cooccurence data
+## THE COMMENT IS NOT CLEAR, EXPLAIN...
+indiv2 <- tdata$CODE[!tdata$CODE==""]
+nrow(tdata)/length(indiv2)
+indiv2 <- data.frame(indiv2)
+indiv2 <- mefa:::rep.data.frame(indiv2,each=100)
+fdata <- cbind(indiv2,tdata)
+fdata <- fdata[,-c(2,3,4,9,14,17,18)]
+
+# Cleaning up the occurence data
+## CLEANING UP HOW?
+fdata[is.na(fdata)] <- 0
+fdata$Lesion<-rowSums(fdata[,2:4])
+fdata[fdata$Lesion>1,]
+fdata$Mycorrhiza<-rowSums(fdata[,6:8])
+fdata[fdata$Mycorrhiza>1,]
+fdata <- fdata[,-c(2:4,6:8)]
+
+#### Checking data for problems ####
+
+summary(fdata)
+fdata$None.Path <- as.integer(fdata$None.Path)
+fdata$None.Myc <- as.integer(fdata$None.Myc)
+fdata[is.na(fdata)] <- 0 
+
+
+sherb <- fdata$Herbivory+fdata$None.Herb
+fdata[sherb!=1,]
+fdata[sherb!=1,"None.Herb"]<-1
+
+# Are all the sums equal to 100 for herb? 
+dframeHerb <- data.frame(counter=NA, Indiv2=NA,Sum=NA)
+c <- 1
+for (i in unique(fdata$indiv2)){
+  dframeHerb[c,] <- NA
+  subdata <- fdata[fdata$indiv2==i,]
+  dframeHerb$counter[c] <- c
+  dframeHerb$Indiv2[c] <- i
+  dframeHerb$Sum[c] <- sum(subdata[,"Herbivory"]+subdata[,"None.Herb"])
+  subdata <- NA
+  c <- c + 1
+}
+dframeHerb[dframeHerb$Sum!=100,]
+
+
+# Are all the sums equal to 100 for Mycorrhiza? 
+dframeMyc <- data.frame(counter=NA, Indiv2=NA,Sum=NA)
+c <- 1
+for (i in unique(fdata$indiv2)){
+  dframeMyc[c,] <- NA
+  subdata <- fdata[fdata$indiv2==i,]
+  dframeMyc$counter[c] <- c
+  dframeMyc$Indiv2[c] <- i
+  dframeMyc$Sum[c] <- sum(subdata[,"Mycorrhiza"]+subdata[,"None.Myc"])
+  subdata <- NA
+  c <- c + 1
+}
+dframeMyc[dframeMyc$Sum!=100,]
+
+
+# Are all the sums equal to 100 for Lesions? 
+dframeLesion <- data.frame(counter=NA, Indiv2=NA,Sum=NA)
+c <- 1
+for (i in unique(fdata$indiv2)){
+  dframeLesion[c,] <- NA
+  subdata <- fdata[fdata$indiv2==i,]
+  dframeLesion$counter[c] <- c
+  dframeLesion$Indiv2[c] <- i
+  dframeLesion$Sum[c] <- sum(subdata[,"Lesion"]+subdata[,"None.Path"])
+  subdata <- NA
+  c <- c + 1
+}
+dframeLesion[dframeLesion$Sum!=100,]
+
+
+# Separating "Individual" into: pop,location,species columns 
+fdata$pop <- gsub("^([0-9]+)[I,O][A-Z]+.*","\\1",fdata$indiv)
+fdata$location <- gsub("^[0-9]+([I,O])[A-Z]+.*","\\1",fdata$indiv)
+fdata$species <- sub("^[0-9]+[I,O]([A-Z]+).*","\\1",fdata$indiv)
+fdata$location <- as.factor(fdata$location)
+fdata$species <- as.factor(fdata$species)
+fdata$pop <- as.factor(fdata$pop)
+fdata$indiv2 <- as.character(fdata$indiv2)
+summary(fdata)
+fdata %>% drop_na()->fdata
+
+fdata$None.Myc <- as.factor(fdata$None.Myc)
+fdata$Herbivory <- as.factor(fdata$Herbivory)
+fdata$Mycorrhiza <- as.factor(fdata$Mycorrhiza)
+fdata$Lesion <- as.factor(fdata$Lesion)
+fdata$None.Herb <- as.factor(fdata$None.Herb)
+fdata$None.Path <- as.factor(fdata$None.Path)
+summary(fdata)
+```
+
+
+### Load/ Modify data: Totals
+
+
+```{r Introduce total dataset, message=FALSE, warning=FALSE, echo=FALSE}
+mdata<-read.csv("CSV/Assessing_Oct_20.csv",stringsAsFactors=F)
+indiv<-mdata$CODE[!mdata$CODE==""]
+tdata<-mdata[mdata$Slide=="TOTAL",]
+length(indiv)
+nrow(tdata)
+
+ndata<-cbind(indiv,tdata)
+ndata<-ndata[,-c(2,3,4,9,14,17:37)]
+ndata$None.Path<-as.integer(ndata$None.Path)
+ndata$Lesions<-as.integer(100-ndata$None.Path)
+ndata$None.Myc<-as.integer(ndata$None.Myc)
+ndata$Mycorrhiza<-as.integer(100-ndata$None.Myc)
+
+# Checking data for problems
+(problemsPath<-ndata[!rowSums(ndata[,c(2:5)])==100,])
+(problemsHyph<-ndata[!rowSums(ndata[,c(6:9)])==100,])
+(problemsHerb<-ndata[!rowSums(ndata[,c(10:11)])==100,])
+
+# Separating "Individual" into: pop,location,species columns 
+ndata$pop<-gsub("^([0-9]+)[I,O][A-Z]+.*","\\1",ndata$indiv)
+ndata$location<-gsub("^[0-9]+([I,O])[A-Z]+.*","\\1",ndata$indiv)
+ndata$species<-gsub("^[0-9]+[I,O]([A-Z]+).*","\\1",ndata$indiv)
+ndata$location<-as.factor(ndata$location)
+ndata$species<-as.factor(ndata$species)
+ndata$pop<-as.factor(ndata$pop)
+
+#### Totalling the scores####
+binlesion<-cbind(ndata$None.Path,100-ndata$None.Path)
+binmycorr<-cbind(ndata$None.Myc,100-ndata$None.Myc)
+binherbivory<-cbind(ndata$None.Herb,100-ndata$None.Herb)
+summary(ndata)
+```
+
+
+### Field survey data
+
+
+```{r load field data}
+FloristicSurvey <-read.csv("CSV/May_2017_FloristicSurvey_summer2016.csv", sep="\t")
+PlantLength <- read.csv("CSV/May_2017_PlantLength_summer2016.csv", sep="\t")
+Soil_characteristics <- read.csv("CSV/Soil_characteristics.txt", sep="\t")
+
+#Restructuring
+head(PlantLength)
+str(PlantLength)
+colnames(PlantLength)[1] <- "Population"
+PlantLength$Population<-as.factor(PlantLength$Population)
+PlantLength$Location<-as.factor(PlantLength$Location)
+
+FloristicSurvey$Population<-as.factor(FloristicSurvey$Population) # Make the population a factor and not an interger
+FloristicSurvey[is.na(FloristicSurvey)] <- 0
+sum(row.has.na <- apply(FloristicSurvey, 1, function(x){any(is.na(x))}))
+```
+
+
+### Root size
+
+
+```{r load root size data}
+Root_size <-read.csv("CSV/Root_size.csv")
+Root_size$pop<-gsub("^([0-9]+)[I,O][A-Z]+.*","\\1",Root_size$indiv)
+Root_size$location<-gsub("^[0-9]+([I,O])[A-Z]+.*","\\1",Root_size$indiv)
+Root_size$species<-gsub("^[0-9]+[I,O]([A-Z]+).*","\\1",Root_size$indiv)
+Root_size$location<-as.factor(Root_size$location)
+Root_size$species<-as.factor(Root_size$species)
+Root_size$pop<-as.factor(Root_size$pop)
+```
+
+
+###Make a full dataset
+
+
+```{r full data set}
+Soil_characteristics$Location<-as.character(Soil_characteristics$Location)
+for(i in 1:length(Soil_characteristics$Location))if(Soil_characteristics[i,2]=="in"){
+   Soil_characteristics[i,2]<-"I"
+}else{
+  Soil_characteristics[i,2]<-"O"
+}
+Soil_characteristics$Location<-as.factor(Soil_characteristics$Location)  
+names(Soil_characteristics)[1:2]<-c("pop","location")
+
+fulldata <- merge(Soil_characteristics, ndata, by=c("pop","location"))
+names(Root_size)[1]<-"indiv"
+fulldata <- merge(fulldata, Root_size, by=c("indiv","location","pop","species"))
+for(i in 1:length(fulldata$indiv)){
+fulldata$mean_rootsize[i]<-(sum(fulldata[i,20:29])/length(fulldata[,20:29]))
+}
+fulldata<-fulldata[,-c(20:29)]
+
+binlesionF<-cbind(fulldata$None.Path,100-fulldata$None.Path)
+binmycorrF<-cbind(fulldata$None.Myc,100-fulldata$None.Myc)
+binherbivoryF<-cbind(fulldata$None.Herb,100-fulldata$None.Herb)
+
+
+fulldata$pop<-as.factor(fulldata$pop)
+fulldata$Mycorrhiza<-100-fulldata$None.Myc
+fulldata$Lesion<-100-fulldata$None.Path
+```
+
+
+#Variable descriptions
+
+
+###Co-occurence
+
+  * **indiv2:** The unique code given to a sample. In this dataset the unique sample code repeats 100 times for each cross where an observation was taken on the root sample. 
+
+  * **None.Path:** A binary representation of whether a sign of pathogen activity was recorded (0) or not (1).
+
+  * **Lesion:** The counterpart to the previous variable (None.Path). A binary representation of whether a sign of pathogen activity was recorded (1) or not (0).
+
+  * **None.Myc:** A binary representation of whether a sign of myccorhizal activity was recorded (0) or not (1).
+
+  * **Mycorrhiza:** The counterpart to the previous variable (None.Myc). A binary representation of whether a sign of mycorrhizal activity was recorded (1) or not (0).
+    
+  * **None.Herb:** A binary representation of whether herbivory was recorded (0) or not (1).
+
+  * **Herbivory:** The counterpart to the previous variable (None.Herb). A binary representation of whether Herbivoryn was recorded (1) or not (0).
+
+  * **Population (pop):** The coding number representing the population at which the sample was collected. 
+
+  * **location:** A code representing the whether the sample was collected inside a Alliaria petiolata population (I) or whther it was collected at least 7 m outside of he furthest individual in the A. petiolata population (O).
+  
+  * **species:** The particular species to which the sample belongs.
+
+  * **Cross:** The particular cross number where the data was recorded on the individual sample. 
+  
+###Total scores
+
+  * **indiv:** The unique code given to a sample. 
+  
+  * **Decay:** The total number of crosses where decay was recorded an individual sample when doing a total of 100 crosses/ sample.
+
+  * **Pathogen:** The total number of crosses where pathogen was recorded on an individual sample when doing a total of 100 crosses/ sample.
+
+  * **Hyphae:** The total number of crosses where non-myccorhizal hyphae was recorded on an individual sample when doing a total of 100 crosses/ sample.
+
+  * **None.Path:** The total number of crosses where no signs of pathogen activities were recorded on an individual sample when doing a total of 100 crosses/ sample. Note that the total of Decay, Pathogen, Hyphae, and None.Path must come to 100 per individual to account for all 100 crosses.
+
+  * **Arbuscule:** The total number of crosses where an arbuscule was recorded on an individual sample when doing a total of 100 crosses/ sample.
+
+  * **Vesicules:** The total number of crosses where a vesicule was recorded on an individual sample when doing a total of 100 crosses/ sample.
+  
+  * **M_Hyphae:** The total number of crosses where myccorhizal hyphae was recorded on an individual sample when doing a total of 100 crosses/ sample.
+  
+  * **None.Myc:** The total number of crosses where no signs of mycorrhizal activities were recorded on an individual sample when doing a total of 100 crosses/ sample. Note that the total of Arbuscules, Vesicules, M_Hyphae, and None.Myc must come to 100 per individual to account for all 100 crosses.
+  
+  * **Herbivory:** The total number of crosses where herbivory was recorded on an individual sample when doing a total of 100 crosses/ sample.
+  
+  * **None.Herb:** The total number of crosses where no signs of herbivory was recorded on an individual sample when doing a total of 100 crosses/ sample. Note that the total of Herbivory, and None.Herb must come to 100 per individual to account for all 100 crosses.
+
+  * **Population (pop):** The coding number representing the population at which the sample was collected. 
+
+  * **location:** A code representing the whether the sample was collected inside a Alliaria petiolata population (I) or whther it was collected at least 7 m outside of he furthest individual in the A. petiolata population (O).
+  
+  * **species:** The particular species to which the sample belongs.
+
+###Floristic Survey
+
+
+###Soil Characteristics 
+
+
+###Root size
+
+
+#Soil abiotic qualities and location
+
+
+### Model selection
+
+
+```{r model fittin soil}
+var<-Soil_characteristics[,c(1,2)]
+Y<-Soil_characteristics[,-c(1,2,5)]
+var$pop<-as.factor(var$pop)
+Location<-as.factor(var$location)
+Y$Sample <-paste(var$pop,var$location) 
+rownames(Y)<-Y$Sample
+Y$Sample<-NULL
+
+covar_cor = cor(Y)
+corrplot.mixed(covar_cor, upper = "ellipse", lower = "number")
+Nutrient_PCA = dudi.pca(df = Y[, c(3, 4)], scannf = FALSE, nf = 1)
+Nutrient_PCA$co
+Nutrient_PCA$eig/sum(Nutrient_PCA$eig)
+Soil_characteristics$Nutrient_PC1 = Nutrient_PCA$li[,1]
+
+dat<-data.frame(c(1:20))
+dat[1]<-Soil_characteristics$location
+colnames(dat)[1]<-"Location"
+dat$Agg_stability.s<-scale(Soil_characteristics$Agg_stability)
+dat$pH.s<-scale(Soil_characteristics$pH)
+dat$Nutrient_PC1.s<-scale(Soil_characteristics$Nutrient_PC1)
+
+GLM_soil <- glm(Location~Agg_stability.s*pH.s*Nutrient_PC1.s,
+                    family=binomial(link='logit'),
+                    data=dat)
+```
+
+
+###LRT
+
+
+```{r LRT soil}
+GLM_soil2 <- glm(Location~Agg_stability.s+pH.s+Nutrient_PC1.s+
+                   Agg_stability.s:pH.s + Agg_stability.s:Nutrient_PC1.s+
+                   Nutrient_PC1.s:pH.s,
+                family=binomial(link='logit'),
+                data=dat)
+anova(GLM_soil,GLM_soil2)
+
+GLM_soil3 <- glm(Location~Agg_stability.s+pH.s+Nutrient_PC1.s+
+                   Agg_stability.s:pH.s + Agg_stability.s:Nutrient_PC1.s,
+                 family=binomial(link='logit'),
+                 data=dat)
+anova(GLM_soil2,GLM_soil3)
+
+
+GLM_soil4 <- glm(Location~Agg_stability.s+pH.s+Nutrient_PC1.s+
+                   Agg_stability.s:pH.s,
+                 family=binomial(link='logit'),
+                 data=dat)
+anova(GLM_soil3,GLM_soil4)
+
+GLM_soil5 <- glm(Location~Agg_stability.s+pH.s+Nutrient_PC1.s,
+                 family=binomial(link='logit'),
+                 data=dat)
+anova(GLM_soil4,GLM_soil5)
+
+GLM_soil6 <- glm(Location~Agg_stability.s+pH.s,
+                 family=binomial(link='logit'),
+                 data=dat)
+anova(GLM_soil5,GLM_soil6)
+
+GLM_soil7 <- glm(Location~Agg_stability.s,
+                 family=binomial(link='logit'),
+                 data=dat)
+anova(GLM_soil6,GLM_soil7)
+
+GLM_soil8 <- glm(Location~1,
+                 family=binomial(link='logit'),
+                 data=dat)
+anova(GLM_soil7,GLM_soil8)
+```
+
+
+###descriptive stats
+
+
+```{r descriptive stats soil}
+summary(GLM_soil)
+confint(GLM_soil)
+
+pr<-resid(GLM_soil, type='pearson')
+n<-nrow(Soil_characteristics)
+c<-length(coef(GLM_soil))
+(Disp<-sum(pr^2)/(n-c))
+```
+
+
+#Garlic mustard on Mycorrhiza
+
+
+###Model selection
+
+```{r Model fit mycGM gauss}
+hist(ndata$Lesions)
+# In vs Out
+ggplot(data=ndata,aes(x=location))+geom_histogram(stat="count")+facet_wrap(~pop)
+ggplot(data=ndata,aes(x=location))+geom_histogram(stat="count")+facet_wrap(~species)
+# Each Species
+ggplot(data=ndata,aes(x=species))+geom_histogram(stat="count")+facet_wrap(~pop)
+# Each Population
+ggplot(data=ndata,aes(x=pop))+geom_histogram(stat="count")
+
+ndata$Prop_Lesions<- ndata$Lesions/(ndata$Lesions+ndata$None.Path)
+hist(ndata$Prop_Lesions)
+shapiro.test(log(ndata$Prop_Lesions))
+mod1.gauss<-lmer(Prop_Lesions~ species + location + species:location +
+                       (1|pop),
+                     data=ndata) 
+mod1.gauss<-lm(Prop_Lesions~ species + location + species:location,data=ndata)
+bc<-boxcox(mod1.gauss, lambda = seq(-2, 2, 0.1))
+lambda <- bc$x[which.max(bc$y)]
+ndata <- cbind(ndata, ((ndata$Prop_Lesions^lambda)-1)/lambda)
+names(ndata)[length(ndata)] <- "Yprime"
+shapiro.test(ndata$Yprime)
+hist(ndata$Yprime)
+scaleloc(mod1.gauss)
+residfit(mod1.gauss)
+
+
+mod1.gaussY<-glmmadmb(Yprime~ species + location + species:location +
+                       (1|pop),
+                     data=ndata, family="gaussian")
+qqPlot(ndata$Yprime)
+
+cooksd <- cooks.distance(mod1.gauss)
+names(cooksd) <- 1:length(cooksd)
+plot(cooksd, pch="*", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
+abline(h = 4*mean(cooksd, na.rm=T), col="red")  # add cutoff line
+text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=T),names(cooksd),""), col="red")
+
+ndataRM<-ndata[-c(66,73,97,130,133,135,136,176,172,185,204),]
+qqPlot(ndataRM$Yprime)
+shapiro.test(ndataRM$Yprime)
+
+
+mod1.gaussYRM<-glmmadmb(Yprime~ species + location + species:location +
+                       (1|pop),
+                     data=ndataRM, family="gaussian")
+
+bptest(mod1.gaussYRM)
+hist(ndataRM$Yprime)
+mod1.gaussYRM<-lmer(Yprime~ species + location + species:location +
+                       (1|pop),
+                     data=ndataRM)
+scaleloc(mod1.gaussYRM)
+residfit(mod1.gaussYRM)
+
+ICtab(mod1.gaussY,mod1.poisson,mod1.nb,mod1.gaussYRM)
+```
+```{r Model fit mycGM beta}
+descdist(ndata$Prop_Lesions,boot=1000)
+summary(ndata$Prop_Lesions)
+plot(density(ndata$Prop_Lesions))
+mu <- mean(ndata$Prop_Lesions)
+var <- var(ndata$Prop_Lesions)
+estBetaParams <- function(mu, var) {
+  alpha <- ((1 - mu) / var - 1 / mu) * mu ^ 2
+  beta <- alpha * (1 / mu - 1)
+  return(params = list(alpha = alpha, beta = beta))
+}
+estBetaParams(mu, var)
+
+mod1.beta<-glmmTMB(Prop_Lesions~ species + location + species:location +
+                       (1|pop), ziformula=,
+                     data=ndata, family=list(family="beta",link="logit")) 
+
+
+```
+
+```{r Model fit mycGM binom}
+mod1.binom<-glmmadmb(binmycorr ~ species + location + species:location +
+                       (1|pop),
+                     data=ndata, family="binomial") 
+
+pr<-resid(mod1.binom, type='pearson')
+(phimod1.binom <- sum(pr^2)/df.residual(mod1.binom))
+
+scaleloc(mod1.binom)
+residfit(mod1.binom)
+
+```
+
+
+```{r Model fit mycGM poisson}
+mod1.poisson <-glmmadmb(Mycorrhiza ~ species + location + species:location +
+                         (1|pop),
+                       data=ndata, family="poisson")
+
+pr<-resid(mod1.poisson, type='pearson')
+(phi <- sum(pr^2)/df.residual(mod1.poisson))
+
+scaleloc(mod1.poisson)
+residfit(mod1.poisson)
+
+
+ChiCrit<-qchisq(0.95, df.residual(mod1.poisson))
+deviance(mod1.poisson)
+ChiSq<-sum(pr^2)
+
+ChiCrit>=ChiSq
+```
+
+```{r Model fit mycGM negBinom}
+# http://data.princeton.edu/wws509/r/overdispersion.html
+
+mod1.nb<-glmmadmb(Mycorrhiza ~ species + location + species:location +
+                    (1|pop),
+                  data=ndata,family="nbinom1") 
+
+-2*(logLik(mod1.poisson)-logLik(mod1.nb))
+
+scaleloc(mod1.nb)
+residfit(mod1.nb)
+
+pr<-resid(mod1.nb, type='pearson')
+ChiSq<-sum(pr^2)
+ChiCrit>=ChiSq #still too big but much smaller...
+
+
+mod1.nb1<-glmer.nb(Mycorrhiza ~ species + location + species:location +
+                    (1|pop),
+                  data=ndata, control=glmerControl(optimizer="bobyqa")) 
+theta<-getME(mod1.nb1, "glmer.nb.theta")
+
+
+xb <- predict(mod1.poisson)
+g <- cut(xb, breaks=quantile(xb,seq(0,100,5)/100))
+m <- tapply(ndata$Mycorrhiza, g, mean)
+v <- tapply(ndata$Mycorrhiza, g, var)
+
+plot(m, v, xlab="Mean", ylab="Variance",main="Mean-Variance Relationship")
+x <- seq(42.16667,83.77778,0.3)
+lines(x, x*phi, lty="dashed")
+lines(x, x*(1+x/theta))
+
+```
+
+
+###LRT
+
+
+```{r LRT mycGM}
+mod1.1<-glmmadmb(Mycorrhiza ~ species + location + 
+                    (1|pop),
+                  data=ndata, family="nbinom1") 
+# species:location?
+anova(mod1.1, mod1.nb) #discard
+
+mod1.2<-glmmadmb(Mycorrhiza ~ species + 
+                    (1|pop),
+                  data=ndata, family="nbinom1") 
+# location?
+anova(mod1.2, mod1.1) #discard????
+
+mod1.3<-glmmadmb(Mycorrhiza ~ location + 
+                    (1|pop),
+                  data=ndata, family="nbinom1") 
+
+mod1.4<-glmmadmb(Mycorrhiza ~ 1 + 
+                    (1|pop),
+                  data=ndata, family="nbinom1") 
+
+anova(mod1.4 , mod1.3)
+anova(mod1.4 , mod1.2)
+
+options(na.action = "na.fail")
+dredge(mod1.nb)
+```
+
+
+###Descriptive stats
+
+
+```{r descriptive stats mycGM}
+pr<-resid(mod1.1, type='pearson')
+n<-nrow(ndata)
+c<-length(coef(mod1.1))
+(Disp<-sum(pr^2)/(n-c))
+
+summary(mod1.1)
+confint(mod1.1)
+
+# no efffect on colonization... maybe the plantswere there before GM?
+coefplot2(mod1.1)
+```
+
+
+#Garlic mustard on Lesion
+
+
+###Model selection
+
+
+```{r model sel lesionGM}
+hist(ndata$Lesions)
+
+mod2.binom<-glmmadmb(binlesion ~ species + location + species:location +
+                       (1|pop),
+                     data=ndata, family="binomial") 
+
+pr<-resid(mod2.binom, type='pearson')
+n<-nrow(ndata)
+c<-length(coef(mod2.binom))
+(Dispmod2.binom<-sum(pr^2)/(n-c))
+scaleloc(mod2.binom)
+residfit(mod2.binom)
+
+
+mod2.binom.ind<-glmmadmb(binlesion ~ species + location + species:location +
+                       (1|pop)+ (1|indiv),
+                     data=ndata, family="binomial")
+
+pr<-resid(mod2.binom.ind, type='pearson')
+n<-nrow(ndata)
+c<-length(coef(mod2.binom.ind))
+(Dispmod2.binom.ind<-sum(pr^2)/(n-c))
+scaleloc(mod2.binom.ind)
+residfit(mod2.binom.ind)
+
+mod2.binom.sp<-glmmadmb(binlesion ~ species + location + species:location +
+                 (1|pop) + (species|pop),
+               data=ndata, family="binomial") 
+
+pr<-resid(mod2.binom.sp, type='pearson')
+n<-nrow(ndata)
+c<-length(coef(mod2.binom.sp))
+(Disp.sp<-sum(pr^2)/(n-c))
+scaleloc(mod2.binom.sp)
+residfit(mod2.binom.sp)
+
+
+mod2.poisson<-glmmadmb(Lesions ~ species + location + species:location +
+                    (1|pop),
+                  data=ndata, family="poisson") 
+
+pr<-resid(mod2.poisson, type='pearson')
+n<-nrow(ndata)
+c<-length(coef(mod2.poisson))
+(Dispmod2.poisson<-sum(pr^2)/(n-c))
+scaleloc(mod2.poisson)
+residfit(mod2.poisson)
+
+mod2.nb.sp<-glmmadmb(Lesions ~ species + location + species:location +
+                  (species|pop) + (1|pop),
+                  data=ndata, family="nbinom1") 
+
+pr<-resid(mod2.nb.sp, type='pearson')
+n<-nrow(ndata)
+c<-length(coef(mod2.nb.sp))
+(Dispmod1.nb.sp<-sum(pr^2)/(n-c))
+scaleloc(mod2.nb.sp)
+residfit(mod2.nb.sp)
+
+
+mod2.nb<-glmmadmb(Lesions ~ species + location + species:location +
+                    (1|pop),
+                  data=ndata, family="nbinom1") 
+
+pr<-resid(mod2.nb, type='pearson')
+n<-nrow(ndata)
+c<-length(coef(mod2.nb))
+(Dispmod2.nb<-sum(pr^2)/(n-c))
+scaleloc(mod2.nb)
+residfit(mod2.nb)
+
+ICtab(mod2.poisson,mod2.binom,mod2.binom.sp,mod2.nb.sp,mod2.nb)
+```
+
+
+###LRT
+
+
+```{r LRT lesionGM}
+mod2.1<-glmmadmb(Lesions ~ species + location +
+                    (1|pop),
+                  data=ndata, family="nbinom1") 
+anova(mod2.1, mod2.nb)
+
+mod2.2<-glmmadmb(Lesions ~ species +
+                    (1|pop),
+                  data=ndata, family="nbinom1") 
+
+mod2.3<-glmmadmb(Lesions ~ location +
+                    (1|pop),
+                  data=ndata, family="nbinom1") 
+
+mod2.4<-glmmadmb(Lesions ~ 1 +
+                    (1|pop),
+                  data=ndata, family="nbinom1") 
+anova(mod2.4 , mod2.2)
+anova(mod2.4 , mod2.3)
+
+dredge( mod2.nb)
+```
+
+
+###Descriptive stats
+
+
+```{r descriptive stats lesionGM}
+pr<-resid(mod2.nb, type='pearson')
+n<-nrow(ndata)
+c<-length(coef(mod2.nb))
+(Disp<-sum(pr^2)/(n-c))
+
+summary(mod2.nb)
+confint(mod2.nb)
+
+coefplot2(mod2.nb)
+```
+
+
+# Myc and lesion Correlation Model
+
+*NOTE: Yprime = corr coefficient of Myc and Lesion at every cross per indiv*
+
+###Model selection
+
+
+```{r}
+# calculating the r
+Root_size$mean_rootsize <- rowSums(Root_size[,2:11])/length(Root_size[,2:11])
+names(Root_size)[1]<-"indiv2"
+
+fdata_rs <- merge(fdata, Root_size, by=c("indiv2","location","pop","species"))
+indivCODE <- as.character(unique(fdata_rs$indiv2))
+dfcorr <-data.frame(indiv2=c(0),r=c(0))
+for (i in 1:length(indivCODE)){
+  dat1<-NULL
+  dat1<-fdata_rs[fdata_rs$indiv2==indivCODE[i],]
+  dfcorr[i,1] <- indivCODE[i]
+  dfcorr[i,2] <- cor(as.numeric(dat1$Mycorrhiza),as.numeric(dat1$Lesion))
+}
+dfcorr %>% drop_na()->dfcorr
+
+fdata_rs.corr <- merge(dfcorr, Root_size, by="indiv2")
+shapiro.test(fdata_rs.corr$r)
+
+fdata_rs.corr$r.t<-fdata_rs.corr$r+1
+CorrLM<-lm(r.t~ species * location * mean_rootsize,data=fdata_rs.corr)
+
+bc<-boxcox(CorrLM, lambda = seq(-2, 2, 0.1))
+lambda <- bc$x[which.max(bc$y)]
+fdata_rs.corr <- cbind(fdata_rs.corr, ((fdata_rs.corr$r.t^lambda)-1)/lambda)
+names(fdata_rs.corr)[length(fdata_rs.corr)] <- "Yprime"
+shapiro.test(fdata_rs.corr$Yprime)
+hist(fdata_rs.corr$Yprime)
+
+CorrLMERBC<-lmer(Yprime~ species + location + mean_rootsize + 
+                   location:species +
+                   (1|pop),
+                 data=fdata_rs.corr)
+pr<-resid(CorrLMERBC, type='pearson')
+n<-nrow(fdata_rs.corr)
+c<-length(coef(CorrLMERBC))
+(Disp<-sum(pr^2)/(n-c))
+
+plot(effect("location:mean_rootsize", CorrLMERBC))
+plot(effect("mean_rootsize", CorrLMERBC))
+```
+
+
+####LRT
+
+
+```{r LRT corrmod}
+CorrLMERBC<-lmer(Yprime~ species + location + mean_rootsize + 
+                   location:species +
+                   (1|pop),
+                 data=fdata_rs.corr)
+
+CorrLMERBC1<-lmer(Yprime~ species + location + mean_rootsize+
+                   (1|pop),
+                 data=fdata_rs.corr)
+anova(CorrLMERBC1, CorrLMERBC)
+
+CorrLMERBC2<-lmer(Yprime~ species + location + 
+                   (1|pop),
+                 data=fdata_rs.corr)
+anova(CorrLMERBC2, CorrLMERBC1)
+
+CorrLMERBC3<-lmer(Yprime~ species +  
+                    (1|pop),
+                  data=fdata_rs.corr)
+anova(CorrLMERBC3, CorrLMERBC2)
+
+CorrLMERBC4<-lmer(Yprime~ 1+ 
+                    (1|pop),
+                  data=fdata_rs.corr)
+anova(CorrLMERBC3, CorrLMERBC4)
+```
+
+
+###Descriptive stats
+
+
+```{r descriptive stats cormod}
+pr<-resid(CorrLMERBC, type='pearson')
+n<-nrow(fdata_rs.corr)
+c<-length(coef(CorrLMERBC))
+(Disp<-sum(pr^2)/(n-c))
+
+summary(CorrLMERBC)
+confint(CorrLMERBC)
+```
+
+
+#Everything on lesion
+
+
+###Model selection
+
+
+```{r model selection fullmod}
+var<-fulldata[,c(5,6,8,9,22,23,24)]
+covar_cor = cor(var)
+corrplot.mixed(covar_cor, upper = "ellipse", lower = "number")
+Nutrient_PCA = dudi.pca(df = var[, c(3, 4)], scannf = FALSE, nf = 1)
+Nutrient_PCA$co
+Nutrient_PCA$eig/sum(Nutrient_PCA$eig)
+fulldata$Nutrient_PC1 = Nutrient_PCA$li[,1]
+
+mod10.nbinom <- glmmadmb(Lesion ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "nbinom1")
+mod10.nbinom.ind <- glmmadmb(Lesion ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                      (1 | pop)+(1 | indiv)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "nbinom1")
+
+# mod10.poisson <- glmmadmb(Lesion ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      # scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                      # (1 | pop)+
+                      # Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      # Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      # Mycorrhiza:scale(Agg_stability), 
+                    # data = fulldata,family = "poisson") 
+#fails
+mod10.poisson.ind <- glmmadmb(Lesion ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                      (1 | pop)+(1 | indiv)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "poisson")
+
+mod10.binom <- glmmadmb(binlesionF ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "binomial")
+# mod10.binom.ind <- glmmadmb(binlesionF ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      # scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                      # (1 | pop) + (1 | indiv)+
+                      # Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      # Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      # Mycorrhiza:scale(Agg_stability), 
+                    # data = fulldata,family = "binomial") 
+#fail
+
+ICtab(mod10.binom, mod10.poisson.ind, mod10.nbinom, mod10.nbinom.ind)
+```
+
+
+###LRT
+
+*cant include location because when pop is a random factor locatin is correlated with all the other measurements! They were taken "in" and "out".*
+
+```{r LRT fullmodel}
+mod10.binom <- glmmadmb(binlesionF ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "binomial")
+
+mod10.1 <- glmmadmb(binlesionF ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH), 
+                    data = fulldata,family = "binomial")
+# Mycorrhiza:scale(Agg_stability)? 
+anova(mod10.1, mod10.binom) # important
+
+mod10.2 <- glmmadmb(binlesionF ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species , 
+                    data = fulldata,family = "binomial")
+# Mycorrhiza:scale(pH)? 
+anova(mod10.2, mod10.1) # important
+
+mod10.3 <- glmmadmb(binlesionF ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:scale(pH), 
+                    data = fulldata,family = "binomial")
+# Mycorrhiza:species? 
+anova(mod10.3, mod10.1) # important
+
+mod10.4 <- glmmadmb(binlesionF ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1+
+                      Mycorrhiza:species + Mycorrhiza:scale(pH), 
+                    data = fulldata,family = "binomial")
+# Mycorrhiza:scale(mean_rootsize)?
+anova(mod10.4,mod10.1) #keep
+
+mod10.1 <- glmmadmb(binlesionF ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH), 
+                    data = fulldata,family = "binomial")
+# Mycorrhiza:Nutrient_PC1?
+anova(mod10.3,mod10.4) #keep nutrient myc interaction
+
+mod10.5 <- glmmadmb(binlesionF ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      scale(pH)+ scale(Agg_stability) + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "binomial")
+# Nutrient_PC1?
+anova(mod10.5, mod10.binom) #important
+
+mod10.6 <- glmmadmb(binlesionF ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      scale(pH) + Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "binomial")
+# scale(Agg_stability)?
+anova(mod10.6 ,mod10.binom) #NOPE
+
+mod10.7 <- glmmadmb(binlesionF ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "binomial")
+# scale(pH)?
+anova(mod10.7,mod10.6) #NOPE
+
+mod10.8 <- glmmadmb(binlesionF ~ Mycorrhiza + scale(mean_rootsize) +
+                      Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "binomial")
+# Species?
+anova(mod10.7,mod10.8) #keep
+
+mod10.9 <- glmmadmb(binlesionF ~ Mycorrhiza + species + 
+                      Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "binomial")
+# scale(mean_rootsize)?
+anova(mod10.9,mod10.7) #Keep
+
+mod10.10 <- glmmadmb(binlesionF ~ scale(mean_rootsize) + species + 
+                      Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "binomial")
+
+# Mycorrhiza?
+anova(mod10.10,mod10.7) #keep
+```
+
+
+###Descriptive stats
+
+
+```{r desctiptive stats fullmod}
+pr<-resid(mod10.3, type='pearson')
+n<-nrow(fulldata)
+c<-length(coef(mod10.3))
+(Disp<-sum(pr^2)/(n-c))
+
+summary(mod10.7)
+confint(mod10.7)
+coefplot2(mod10.7)
+```
+
+

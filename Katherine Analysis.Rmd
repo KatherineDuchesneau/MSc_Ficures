@@ -38,7 +38,12 @@ This section contains all the necessary details about the R version and package 
   * `car` package version `r packageVersion("car")`
   * `factoextra` package version `r packageVersion("factoextra")`
   * `pvclust` package version `r packageVersion("pvclust")`
-
+  * `effects` package version `r packageVersion("effects")`
+  * `coefplot2` package version `r packageVersion("coefplot2")`
+  * `bbmle` package version `r packageVersion("bbmle")`
+  * `gridExtra` package version `r packageVersion("gridExtra")`
+  
+  
 ### Load Packages and Functions
 
 ```{r Load_packages and functions, message=FALSE, warning=FALSE}
@@ -59,6 +64,12 @@ library(ggbiplot)
 library(factoextra)
 library(glmmADMB)
 library(car)
+library(effects)
+library(coefplot2)
+library(bbmle)
+library(gridExtra)
+library(corrplot)
+library(ade4)
 ```
 
 
@@ -81,6 +92,49 @@ theme_simple <- function (base_size = 16, base_family = "") {
       #      legend.position="none"
     )
 }
+
+grid_arrange_shared_legend <-
+  function(...,
+           ncol = length(list(...)),
+           nrow = 1,
+           position = c("bottom", "right")) {
+    
+    plots <- list(...)
+    position <- match.arg(position)
+    g <-
+      ggplotGrob(plots[[1]] + theme(legend.position = position))$grobs
+    legend <- g[[which(sapply(g, function(x)
+      x$name) == "guide-box")]]
+    lheight <- sum(legend$height)
+    lwidth <- sum(legend$width)
+    gl <- lapply(plots, function(x)
+      x + theme(legend.position = "none"))
+    gl <- c(gl, ncol = ncol, nrow = nrow)
+    
+    combined <- switch(
+      position,
+      "bottom" = arrangeGrob(
+        do.call(arrangeGrob, gl),
+        legend,
+        ncol = 1,
+        heights = grid::unit.c(unit(1, "npc") - lheight, lheight)
+      ),
+      "right" = arrangeGrob(
+        do.call(arrangeGrob, gl),
+        legend,
+        ncol = 2,
+        widths = grid::unit.c(unit(1, "npc") - lwidth, lwidth)
+      )
+    )
+    
+    grid::grid.newpage()
+    grid::grid.draw(combined)
+    
+    # return gtable invisibly
+    invisible(combined)
+    
+  }
+
 ```
 
 Overdispersion function, tests for overdispersion in GLMM:
@@ -101,6 +155,25 @@ overdisp_fun <- function(model) {
   # Generates a p-value. If less than 0.05, the data are overdispersed.
   pval <- pchisq(Pearson.chisq, df = rdf, lower.tail = FALSE)
   c(chisq = Pearson.chisq, ratio = prat, rdf = rdf, p = pval)
+}
+
+residfit <- function (model, col="black") {
+  f<-fitted(model)
+  r<-resid(model, type='pearson')
+  plot(f, r, col=col, main='Residuals vs. Fitted')
+  L1<-loess(r~f)
+  fvec = seq(min(f),max(f),length.out=1000)
+  lines(fvec,predict(L1,fvec),col='red')
+}
+
+#do the same for the Scale-Location plot
+scaleloc <- function(model,col="black") {
+  f <- fitted(model)
+  r <- sqrt(abs(residuals(model, type='pearson'))) #transformed pearson residuals
+  plot(f,r,col=col, main='Scale-Location Plot') 
+  L1 <- loess(r~f)
+  fvec = seq(min(f),max(f),length.out=1000)
+  lines(fvec,predict(L1,fvec),col=2)
 }
 ```
 
@@ -206,8 +279,8 @@ fdata$Lesion <- as.factor(fdata$Lesion)
 fdata$None.Herb <- as.factor(fdata$None.Herb)
 fdata$None.Path <- as.factor(fdata$None.Path)
 summary(fdata)
-
-#### Gather ####
+```
+```{R gather dataframe}
 length(unique(fdata$indiv2))
 Cross<- data.frame(c(rep(1:100, times=225)))
 fdatac <- cbind(fdata,Cross)
@@ -229,7 +302,9 @@ nrow(tdata)
 ndata<-cbind(indiv,tdata)
 ndata<-ndata[,-c(2,3,4,9,14,17:37)]
 ndata$None.Path<-as.integer(ndata$None.Path)
+ndata$Lesions<-as.integer(100-ndata$None.Path)
 ndata$None.Myc<-as.integer(ndata$None.Myc)
+ndata$Mycorrhiza<-as.integer(100-ndata$None.Myc)
 
 # Checking data for problems
 problemsPath<-ndata[!rowSums(ndata[,c(2:5)])==100,]
@@ -273,7 +348,6 @@ PlantLength$Location<-as.factor(PlantLength$Location)
 FloristicSurvey$Population<-as.factor(FloristicSurvey$Population) # Make the population a factor and not an interger
 FloristicSurvey[is.na(FloristicSurvey)] <- 0
 sum(row.has.na <- apply(FloristicSurvey, 1, function(x){any(is.na(x))}))
-
 ```
 
 ### Root size
@@ -468,78 +542,7 @@ confint(mod1)
 ```
 
 
-
-
 ## Floristic composition and GM presence
-
-
-### Linear discriminate analysis
-```{r}
-# Discriminant function analysis is used (general LDA format) because i have a cat. dependent and a binary independent. (it needs binary or continuous!)
-# you might have to bin covers because it only works with categorical, so 0-5% none, 6-40 low etc.
-FloristicSurvey$GM_Coverage_category<-cut(FloristicSurvey$GM_Coverage, c(-Inf,25,50,75,100), labels = c("None to Low","Medium", "High", "Overtaken"))
-table(FloristicSurvey$GM_Coverage_category)
-# [0-20] None
-# ]20-40] low
-# ]40-60] Medium 
-# ]60-80] high
-# ]80-100] Overtaken
-```
-
-
-```{r}
-#LDA
-FloristicSurveysmall<-data.frame(FloristicSurvey[,4:56])
-# Linear discriminant function analysis
-
-FloristicSurveysmall <- FloristicSurveysmall[,-c(42,45)] 
-FloristicSurveyLDA <- lda(GM_Coverage_category ~., data=FloristicSurveysmall)
-# Extract scaling vectors
-scalvec<-data.frame(FloristicSurveyLDA$scaling)
-# Extract predictions
-FloristicSurveyLDAval <- data.frame(predict(FloristicSurveyLDA)$x)
-
-# Plot results
-ggplot(data=FloristicSurveyLDAval,aes(x=LD1, y=LD2, group=FloristicSurveysmall$GM_Coverage_category))+
-  stat_ellipse(geom="polygon",aes(colour=FloristicSurveysmall$GM_Coverage_category),fill=NA,size=1.2,alpha=0.3)+
-  stat_ellipse(geom="polygon",aes(fill=FloristicSurveysmall$GM_Coverage_category,colour=FloristicSurveysmall$GM_Coverage_category),size=1.2,alpha=0.3)+
-  geom_point(aes(shape=FloristicSurveysmall$GM_Coverage_category,fill=FloristicSurveysmall$GM_Coverage_category,colour=FloristicSurveysmall$GM_Coverage_category),size=I(4),alpha=I(0.8))+
-  xlab("LD Axis 1")+ylab("LD Axis 2")+theme_simple() +
-  theme(legend.title=element_blank())
-
-
-
-#test significance of axis
-anova(lm(FloristicSurveyLDAval$LD1~FloristicSurveysmall$GM_Coverage_category))
-anova(lm(FloristicSurveyLDAval$LD2~FloristicSurveysmall$GM_Coverage_category))
-
-#LDA WITHOUT A. PETIOLATA
-FloristicSurveysmall<-data.frame(FloristicSurvey[,4:56])
-# Linear discriminant function analysis
-FloristicSurveysmall[10]<-NULL
-FloristicSurveysmall[c(41,44)] <- NULL 
-FloristicSurveyLDA<-lda(GM_Coverage_category ~ ., data=FloristicSurveysmall)
-# Extract scaling vectors
-scalvec<-data.frame(FloristicSurveyLDA$scaling)
-# Extract predictions
-FloristicSurveyLDAval <- data.frame(predict(FloristicSurveyLDA)$x)
-
-# Plot results
-LDA_of_Floristic_Composition<-ggplot(data=FloristicSurveyLDAval,aes(x=LD1,y=LD2,group=FloristicSurveysmall$GM_Coverage_category))+
-  stat_ellipse(geom="polygon",aes(colour=FloristicSurveysmall$GM_Coverage_category),fill=NA,size=1.2,alpha=0.3)+
-  stat_ellipse(geom="polygon",aes(fill=FloristicSurveysmall$GM_Coverage_category,colour=FloristicSurveysmall$GM_Coverage_category),size=1.2,alpha=0.3)+
-  geom_point(aes(shape=FloristicSurveysmall$GM_Coverage_category,fill=FloristicSurveysmall$GM_Coverage_category,colour=FloristicSurveysmall$GM_Coverage_category),size=I(4),alpha=I(0.8))+
-  xlab("LD Axis 1")+ylab("LD Axis 2")+
-  ggtitle("LDA of Floristic Composition \n in a Garlic Mustard Population")+
-  theme_bw()+
-  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 12))+scale_color_manual(values=c("green3"," blue3","orange3","red3"))+ scale_fill_manual(values=c("green3","blue3","orange3","red3"))
-ggsave(file="LDA_of_Floristic_Composition.epx", plot=LDA_of_Floristic_Composition, width=10, height=8)
-
-
-#test significance of axis
-anova(lm(FloristicSurveyLDAval$LD1~FloristicSurveysmall$GM_Coverage_category))
-anova(lm(FloristicSurveyLDAval$LD2~FloristicSurveysmall$GM_Coverage_category))
-```
 
 ### Cluster analysis
 ```{r}
@@ -646,31 +649,21 @@ NMDS.mean.FloristicSurvey=aggregate(FloristicSurvey.NMDS.data[ ,c("NMDS1", "NMDS
 
 ## finally plotting.
 mult <- 1 #multiplier for the arrows and text for envfit below. You can change this and then rerun the plot command.
-ggplot(data = FloristicSurvey.NMDS.data, aes(y = NMDS2, x = NMDS1))+ 
+NMDS_of_Floristic_Composition<-ggplot(data = FloristicSurvey.NMDS.data, aes(y = NMDS2, x = NMDS1))+ 
     geom_path(data = df_ell.FSurvey.GM_coverage, aes(x = NMDS1, y = NMDS2, group = df_ell.FSurvey.GM_coverage$GM_coverage, color=df_ell.FSurvey.GM_coverage$GM_coverage))+ 
     geom_point( aes(color = FloristicSurvey.NMDS.data$GM_Coverage), size = 1)+ 
     scale_color_manual(values = c(14,5,19,2))+ 
-    coord_cartesian(xlim = c(-1,1.5))+
+    coord_cartesian(xlim = c(-.5,.5))+
   theme_simple()+ guides(color=guide_legend("Garlic Mustard Coverage"))+
-  ggtitle("LDA of Floristic Composition \n in a Garlic Mustard Population")+
+  ggtitle("NMDS of Floristic Composition \n in a Garlic Mustard Population")+
   theme_bw()+
-  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 12))+scale_color_manual(values=c("green3"," blue3","orange3","red3"))+ scale_fill_manual(values=c("green3","blue3","orange3","red3"))
-ggsave(file="LDA_of_Floristic_Composition.epx", plot=LDA_of_Floristic_Composition, width=10, height=8)
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 12))+scale_color_manual(values=c("green3"," blue3","orange3","red3"))
+NMDS_of_Floristic_Composition
+ggsave(file="NMDS_of_Floristic_Composition.eps", plot=NMDS_of_Floristic_Composition, width=10, height=8)
 ```
 
 
-### PCA
-```{r}
-FloristicSurvey.pca <- prcomp(FloristicSurvey[,4:(ncol(FloristicSurvey)-1)],center = TRUE) 
-summary(FloristicSurvey.pca)
-factoextra::fviz_eig(FloristicSurvey.pca,addlabels=TRUE,hjust = -0.3)+theme_simple()
-library(ggfortify)
-autoplot(FloristicSurvey.pca, data = FloristicSurvey, colour = "GM_Coverage_category", label.size = 3)+theme_simple()
-round(FloristicSurvey.pca$sdev^2/sum(FloristicSurvey.pca$sdev^2)*100,2)
-# About 25% explained by my first 2 eigenvectors. 50% by the first 6.
-```
-
-### Modeling (redundancy analysis)
+### RDA
 species comp ~ GMcov * pop + soil characteristics inside and outside as covariates? 
 ```{r}
 
@@ -692,8 +685,8 @@ SpeciesGMCorrelation$Species[SpeciesGMCorrelation[,3]==TRUE]
 
 
 # Redundancy analysis
-sp.comp <- FloristicSurvey[,4:(length(FloristicSurvey))]
-var <- FloristicSurvey[,1:3]
+sp.comp <- FloristicSurvey[,4:(length(FloristicSurvey)-1)]
+var <- FloristicSurvey[,c(1:3,length(FloristicSurvey))]
 var$Quadrat <- as.character(var$Quadrat)
 for(i in 1:length(var$Quadrat))if(var$Population[i] == "7"){
   var$Quadrat[i]<-paste("7",var$Quadrat[i],sep="")
@@ -709,22 +702,77 @@ for(i in 1:length(var$Quadrat))if(var$Population[i] == "7"){
 
 var$Population <- as.factor(var$Population)
 var$GM_Coverage<-as.numeric(var$GM_Coverage)
-sp.comp<-as.matrix(sp.comp)
+sp.comp.hell<-decostand(sp.comp,method="hellinger")
 
-formulaRDA <- rda(sp.comp ~ GM_Coverage + Condition(Population) , data=var)
+formulaRDA <- rda(sp.comp.hell ~ GM_Coverage + Population , data=var)
 
-formulaRDA <- rda(sp.comp ~ GM_Coverage , data=var)
 head(summary(formulaRDA))
 RsquareAdj(formulaRDA)
-plot(formulaRDA, scaling = 2)
-anova.cca(formulaRDA,step=1000)
-anova.cca(formulaRDA,by="axis", step=1000)
+coef(formulaRDA)
+scor = scores(formulaRDA, display=c("sp", "cn", "bp"), scaling=2) 
+ 
 
+anova.cca(formulaRDA,step=1000)
+anova.cca(formulaRDA,by="terms", step=1000)
+
+
+
+
+# numeric centroids
+numeric_centroids <- data.frame(scor$centroids)
+numeric_centroids
+str(numeric_centroids)
+numeric_centroids$Population <- rownames(numeric_centroids)
+numeric_centroids
+ 
+# testing it out
+ggplot(numeric_centroids, aes(x = RDA1, y = RDA2))+
+  geom_text(aes(label = Population))+ # label tells geom_text which text you want to plot
+  ylim(-1,1)+ #NB note that this is a convenience wrapper and may cut data out of your plot
+  xlim(-1,1) #important if you are calculating stats in the plot - these will be excluded
+ 
+# species
+species_centroids <- data.frame(scor$species)
+species_centroids
+species_centroids$species_names <- rownames(species_centroids) # you can also put label = rownames() etc in the ggplot code. But sometimes you may want it in a column for later
+ 
+ggplot(numeric_centroids, aes(x = RDA1, y = RDA2))+
+  geom_text(aes(label = Population))+
+  geom_text(data = species_centroids, aes(label = species_names),
+            colour = "orange")+
+  ylim(-1,1)+
+  xlim(-1,1)
+ 
+# arrows
+continuous_arrows <- data.frame(scor$biplot)
+continuous_arrows
+continuous_arrows$manure_class <- rownames(continuous_arrows) #turning rownames into a variable
+continuous_arrows
+ 
+site_scores <- data.frame(scores(formulaRDA)$sites)
+site_scores$site_num <- var$Quadrat
+site_scores$coverage<-var$GM_Coverage_category
+ 
+
+RDA_plot <- ggplot(numeric_centroids, aes(x = RDA1, y = RDA2))+
+   geom_point(data = site_scores, aes(x = RDA1, y = RDA2,  color=coverage),
+             size = 3)+
+   coord_cartesian(x = c(-1, 1), y = c(-1,1.2))+
+   geom_segment(data = continuous_arrows,
+                aes(x = 0, xend = mult * RDA1,
+                    y = 0, yend = mult * RDA2),
+                arrow = arrow(length = unit(0.25, "cm")), colour = "grey") + #grid is required for arrow to work.
+   geom_text(data = continuous_arrows,
+             aes(x= (mult + mult/10) * RDA1, y = (mult + mult/10) * RDA2, 
+                 label = manure_class), 
+             size = 5,
+             hjust = 0.5)+
+   geom_text(aes(label = Population))+ theme_bw()
+RDA_plot
+ggsave(file="RDA_plot.eps", plot=RDA_plot, width=10, height=8)
 
 ```
 
-
-*Note that I redid this with GM_coverage_catogory and i didnt find ANY significance!
 
 # Soil Characteristics
 
@@ -738,24 +786,88 @@ Soil_characteristics2<-rename(Soil_characteristics2, c("Soil_characteristics.Pop
 df2 <- reshape2::melt(Soil_characteristics2, id.var=c("Population","Location"))
 df2 <- rename(df2, c("value"="Log_value"))
 
-par(mfrow=c(2,2))
-ggplot(Soil_characteristics, aes(Location,Agg_stability,fill=Location))+ geom_boxplot() +
-  theme_simple()
-ggplot(Soil_characteristics, aes(Location,pH,fill=Location))+ geom_boxplot() +
-  theme_simple()
-ggplot(Soil_characteristics, aes(Location,C_percent,fill=Location))+ geom_boxplot() +
-  theme_simple()
-ggplot(Soil_characteristics, aes(Location,N_percent,fill=Location))+ geom_boxplot() +
-  theme_simple()
+
+Agg_stability_plot<-ggplot(Soil_characteristics, aes(Location,Agg_stability,fill=Location))+ geom_boxplot() +
+  theme_bw()+
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 12))+scale_fill_manual(values=c("red3","blue3"))
+
+ph_plot<-ggplot(Soil_characteristics, aes(Location,pH,fill=Location))+ geom_boxplot() +
+  theme_bw()+
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 12)) + scale_fill_manual(values=c("red3","blue3"))
+
+C_percent_plot<-ggplot(Soil_characteristics, aes(Location,C_percent,fill=Location))+ geom_boxplot() +
+  theme_bw()+
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 12)) + scale_fill_manual(values=c("red3","blue3"))
+
+N_percent_plot<-ggplot(Soil_characteristics, aes(Location,N_percent,fill=Location))+ geom_boxplot() +
+  theme_bw()+
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 12))+scale_fill_manual(values=c("red3","blue3"))
+
+edaphic_soil_qualities_plot<-grid_arrange_shared_legend(Agg_stability_plot, ph_plot,C_percent_plot, N_percent_plot)
+ggsave(file="edaphic_soil_qualities_plot.eps", plot=edaphic_soil_qualities_plot, width=10, height=8)
+
 Soil_characteristics$Population<-as.factor(Soil_characteristics$Population)
 
 GLMER_soil <- glmer(Location~scale(Agg_stability)*scale(C_percent)*scale(N_percent)+(1|Population),family=binomial(link='logit'),data=Soil_characteristics)
+residfit(GLMER_soil)
+scaleloc(GLMER_soil)
+
+pr<-resid(GLMER_soil, type='pearson')
+n<-nrow(Soil_characteristics)
+c<-length(coef(GLMER_soil))
+(Disp<-sum(pr^2)/(n-c))
+
 summary(GLMER_soil)
 options(na.action = "na.fail")
 dredge(GLMER_soil) 
 # A model with nothing is best...
 ```
 
+
+LDA differs from RDA and CCA in that the response variable is a grouping of the
+sites. This grouping may have been obtained by clustering the sites on the basis of
+a data set, or it may represent an ecological hypothesis. LDA tries to determine to what extent an independent set of quantitative variables can explain this grouping.
+```{r soil LDA}
+var<-Soil_characteristics[,c(1,2)]
+Y<-Soil_characteristics[,-c(1,2,5)]
+var$Population<-as.factor(var$Population)
+Location<-as.factor(var$Location)
+Y$Sample <-paste(var$Population,var$Location) 
+rownames(Y)<-Y$Sample
+Y$Sample<-NULL
+
+covar_cor = cor(Y)
+corrplot.mixed(covar_cor, upper = "ellipse", lower = "number")
+
+Nutrient_PCA<-dudi.pca(df = Y[, c(3, 4)], scannf = FALSE, nf = 1)
+Nutrient_PCA$co
+Nutrient_PCA$eig/sum(Nutrient_PCA$eig)
+Y$Nutrient_PC1 = Nutrient_PCA$li[,1]
+
+Y<-Y[,c(1,2,5)]
+
+Y.d1 <-dist(Y)
+Y.MHV<-betadisper(Y.d1,var$Location)
+permutest(Y.MHV) # no significant difference in dispersion between groups
+
+
+formulaLDA <- lda(var$Location ~ Agg_stability + Nutrient_PC1 + pH, data=Y)
+summary(formulaLDA)
+formulaLDA$means
+scalvec<-data.frame(formulaLDA$scaling)
+LDAval <- data.frame(predict(formulaLDA)$x)
+anova(lm(LDAval$LD1~var$Location))
+DF<-cbind(LDAval$LD1,data.frame(var$Location))
+colnames(DF)<-c("LDAval","Location")
+SoilLDAplot<-ggplot(DF, aes(LDAval, fill = Location)) + geom_density(alpha = 0.2)+
+  ggtitle("Linear Discriminant analysis of Soil characteristics \n in and out of A. petiolata invasion")+
+  theme_bw()+
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 12))+scale_fill_manual(values=c("red3","blue3"))
+SoilLDAplot
+ggsave(file="SoilLDAplot.pdf", plot=SoilLDAplot, width=10, height=8)
+
+
+```
 
 # Histology data Analysis
 
@@ -790,8 +902,29 @@ noint.Myc<-lmer(Mycorrhiza~species+loc+(1|pop)+(1|pop:loc),data=fdat_ind)
 anova(base.Myc,noint.Myc)
 base.Myc ## Inspect coefficients
 
-ggplot(fdat_ind,aes(species,Mycorrhiza,colour=loc))+geom_boxplot()+theme_simple()
-ggplot(fdat_ind,aes(pop,Mycorrhiza,colour=loc))+geom_boxplot()+theme_simple()
+Myc_location_species_plot <- ggplot(fdat_ind,aes(loc,Mycorrhiza, fill=loc))+geom_boxplot()+facet_wrap(~species)+
+  xlab("Plant Species")+ylab("Mycorrhizal \nColonization")+
+  ggtitle("Species Mycorrhizal Colonization \n in and out of Garlic Mustard")+
+  theme_bw()+
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 18))+scale_fill_manual(values=c("light blue","forest green"))
+Myc_location_species_plot
+ggsave(file="Myc_location_species_plot.pdf", plot=Myc_location_species_plot, width=10, height=8)
+
+Lesion_location_species_plot <- ggplot(fdat_ind,aes(loc,Lesion,fill=loc))+geom_boxplot()+facet_wrap(~species)+
+  xlab("Plant Species")+ylab("Lesion")+
+  ggtitle("Species Lesions \n in and out of Garlic Mustard")+
+  theme_bw()+
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 18))+scale_fill_manual(values=c("red3","blue3"))
+Lesion_location_species_plot
+ggsave(file="Lesion_location_species_plot.pdf", plot=Lesion_location_species_plot, width=10, height=8)
+
+Myc_location_population_plot<-ggplot(fdat_ind,aes(loc,Mycorrhiza,fill=loc))+geom_boxplot()+facet_wrap(~pop)+
+  xlab("Population")+ylab("Mycorrhizal \nColonization")+
+  ggtitle("Mycorrhizal Colonization \n in and out of Garlic Mustard Population")+
+  theme_bw()+
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 18))+scale_fill_manual(values=c("red3","blue3"))
+Myc_location_population_plot
+ggsave(file="Myc_location_population_plot.pdf", plot=Myc_location_population_plot, width=10, height=8)
 ```
 
 **Mycorrhia model results**
@@ -820,8 +953,14 @@ anova(norint.Les,Les3b) # TEST Myc*loc
 anova(norint.Les,Les3c) # TEST Myc*species
 
 
-ggplot(fdat_ind,aes(Mycorrhiza,Lesion))+facet_wrap(~species)+
-  geom_point(aes(col=loc))+theme_simple()+geom_smooth(method="lm")
+Myc_vs_Lesion<-ggplot(fdat_ind,aes(Mycorrhiza,Lesion))+facet_wrap(~species)+
+  geom_point(aes(col=loc))+theme_simple()+geom_smooth(method="lm",colour="black")+
+  xlab("Mycorrhizal \nColonization")+ylab("Lesion \nMeasurement")+
+  ggtitle("Effect of Mycorrhiza on Lesions \n in and out of Garlic Mustard per Species")+
+  theme_bw()+
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 18))+scale_color_manual(values=c("red3","blue3"))
+Myc_vs_Lesion
+ggsave(file="Myc_vs_Lesion.eps", plot=Myc_vs_Lesion, width=10, height=8)
 ```
 
 ** Lesions model results**
@@ -1000,16 +1139,22 @@ ggplot(data = ndata,aes(x = 1-None.Myc, y = 100-None.Path, color=location))+
   labs(x = "Mycorrhizal colonization", y="Lesions")
 
 
-ggplot(data = ndata,aes(x = 1-None.Myc, y = 100-None.Path, color=location))+
+Myc_vs_Lesion_plot<-ggplot(data = ndata,aes(x = 1-None.Myc, y = 100-None.Path, color=location))+
   geom_smooth(method = "lm")+
   geom_point()+
   theme_simple()+
-  labs(x = "Mycorrhizal colonization", y="Lesions")
+  labs(x = "Mycorrhizal colonization", y="Lesions")+
+  xlab("Mycorrhizal \nColonization")+ylab("Lesion \nMeasurement")+
+  ggtitle("Effect of Mycorrhiza on Lesions \n in and out of Garlic Mustard")+
+  theme_bw()+
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 18))+scale_color_manual(values=c("red3","blue3"))
+Myc_vs_Lesion_plot
+ggsave(file="Myc_vs_Lesion_plot.eps", plot=Myc_vs_Lesion_plot, width=10, height=8)
 ```
 
 ## Bring things together
 
-```{r}
+```{r soil lesion~myc}
 Soil_characteristics$Location<-as.character(Soil_characteristics$Location)
 for(i in 1:length(Soil_characteristics$Location))if(Soil_characteristics[i,2]=="in"){
    Soil_characteristics[i,2]<-"I"
@@ -1020,7 +1165,7 @@ Soil_characteristics$Location<-as.factor(Soil_characteristics$Location)
 names(Soil_characteristics)[1:2]<-c("pop","location")
 
 fulldata <- merge(Soil_characteristics, ndata, by=c("pop","location"))
-# note i used the SCALED dataframe for the total histology
+names(Root_size)[1]<-"indiv"
 fulldata <- merge(fulldata, Root_size, by=c("indiv","location","pop","species"))
 for(i in 1:length(fulldata$indiv)){
 fulldata$mean_rootsize[i]<-(sum(fulldata[i,20:29])/length(fulldata[,20:29]))
@@ -1033,16 +1178,339 @@ binherbivoryF<-cbind(fulldata$None.Herb,100-fulldata$None.Herb)
 
 
 fulldata$pop<-as.factor(fulldata$pop)
+fulldata$Mycorrhiza<-100-fulldata$None.Myc
+fulldata$Lesion<-100-fulldata$None.Path
 # model myc_lesion 
-mod1 <- glmmadmb(binlesionF ~ scale(None.Myc)  * scale(mean_rootsize) * species + scale(pH) + scale(Agg_stability) + scale(N_percent) + scale(C_percent) + (1 | pop), data = fulldata,family = "binomial")
+hist(fulldata$Lesion)
+shapiro.test(fulldata$Lesion)
+mod1 <- glmmadmb(Lesion ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                    scale(pH) + scale(Agg_stability) + scale(N_percent) +
+                    scale(C_percent) + (1 | pop) +
+                          Mycorrhiza:N_percent + Mycorrhiza:scale(mean_rootsize) +
+                          Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                          Mycorrhiza:scale(Agg_stability)+Mycorrhiza:C_percent,
+                  data = fulldata,family = "poisson")
 summary(mod1)
-mod1.dredge <- dredge(mod1)
-mod1.dredgegood <- subset(mod1.dredge,mod1.dredge$delta<=7)
+residfit(mod1)
+scaleloc(mod1)
+
+pr<-resid(mod1, type='pearson')
+n<-nrow(fulldata)
+c<-length(coef(mod1))
+(Disp<-sum(pr^2)/(n-c))
+
+mod10 <- glmmadmb(Lesion ~  Mycorrhiza + scale(mean_rootsize) + species + 
+                    scale(pH) + scale(Agg_stability) + scale(N_percent) +
+                    scale(C_percent) + (1 | pop) +
+                          Mycorrhiza:N_percent + Mycorrhiza:scale(mean_rootsize) +
+                          Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                          Mycorrhiza:scale(Agg_stability)+Mycorrhiza:C_percent,
+                  data = fulldata,family = "nbinom1")
+
+mod11 <- glmmadmb(binlesionF ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                    scale(pH) + scale(Agg_stability) + scale(N_percent) +
+                    scale(C_percent) + (1 | pop) +
+                          Mycorrhiza:N_percent + Mycorrhiza:scale(mean_rootsize) +
+                          Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                          Mycorrhiza:scale(Agg_stability)+Mycorrhiza:C_percent,
+                  data = fulldata,family = "binomial")
+
+ICtab(mod1, mod10, mod11, type='AICc')
+
+
+#ploting the residuals of mycorrhizal on lesions
+hist(fulldata$Mycorrhiza)
+mod1.2<-glm.nb(Mycorrhiza ~ scale(mean_rootsize) + species + 
+                    scale(pH) + scale(Agg_stability) + scale(N_percent) +
+                    scale(C_percent) +
+                          Mycorrhiza:N_percent + Mycorrhiza:scale(mean_rootsize) +
+                          Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                          Mycorrhiza:scale(Agg_stability)+Mycorrhiza:C_percent,
+               data = fulldata)
+residfit(mod1.2)
+scaleloc(mod1.2)
+
+pr<-resid(mod1.2, type='pearson')
+n<-nrow(fulldata)
+c<-length(coef(mod1.2))
+(Disp<-sum(pr^2)/(n-c))
+
+var<-fulldata[,c(5,6,8,9,20,21,22)]
+covar_cor = cor(var)
+corrplot.mixed(covar_cor, upper = "ellipse", lower = "number")
+
+Nutrient_PCA = dudi.pca(df = var[, c(3, 4)], scannf = FALSE, nf = 1)
+Nutrient_PCA$co
+Nutrient_PCA$eig/sum(Nutrient_PCA$eig)
+fulldata$Nutrient_PC1 = Nutrient_PCA$li[,1]
+
+mod10 <- glmmadmb(Lesion ~ Mycorrhiza + location + scale(mean_rootsize) + species + 
+                                   scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                                   (1 | pop)+
+                                   Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                                   Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                                   Mycorrhiza:scale(Agg_stability)+ Mycorrhiza:location, 
+                                 data = fulldata,family = "nbinom1")
+
+mod10.2 <- glmmadmb(Lesion ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                                    scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                                    (1 | pop)+
+                                    Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                                    Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                                    Mycorrhiza:scale(Agg_stability)+ Mycorrhiza:location, 
+                                  data = fulldata,family = "nbinom1")
+
+
+
+mod10.3 <- glmmadmb(Lesion ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "nbinom1")
+
+
+mod10.4 <- glmmadmb(Lesion ~ scale(mean_rootsize) + species + 
+                          scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + 
+                          (1 | pop)+
+                          Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                          Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                          Mycorrhiza:scale(Agg_stability), 
+                        data = fulldata,family = "nbinom1")
+
+ICtab(mod10, mod10.2, mod10.3, mod10.4) # mycorrhiza or not should not be discounted. delta = 2.
+
+
+mod10.5 <- glmmadmb(Lesion ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      scale(Agg_stability) + Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "nbinom1")
+
+ICtab(mod10.3,mod10.5)
+
+mod10.6 <- glmmadmb(Lesion ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "nbinom1")
+
+ICtab(mod10.6,mod10.5)
+
+mod10.7 <- glmmadmb(Lesion ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + 
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "nbinom1")
+
+ICtab(mod10.6,mod10.7)
+
+
+mod10.8 <- glmmadmb(Lesion ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH),
+                    data = fulldata,family = "nbinom1")
+ICtab(mod10.6,mod10.8)
+
+
+mod10.9 <- glmmadmb(Lesion ~ Mycorrhiza + scale(mean_rootsize) + species+
+                      (1 | pop)+
+                      Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "nbinom1")
+ICtab(mod10.9,mod10.6)
+
+mod10.10 <- glmmadmb(Lesion ~ Mycorrhiza + scale(mean_rootsize) + species + 
+                      Nutrient_PC1 + 
+                      (1 | pop)+
+                      Mycorrhiza:scale(mean_rootsize) +
+                      Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                      Mycorrhiza:scale(Agg_stability), 
+                    data = fulldata,family = "nbinom1")
+
+ICtab(mod10.10,mod10.6)
+
+pr<-resid(mod10.6, type='pearson')
+n<-nrow(fulldata)
+c<-length(coef(mod10.6))
+(Disp<-sum(pr^2)/(n-c))
+
+summary(mod10.6)
+data.frame(coef(mod10.6))
+confint(mod10.6)
+
+pdf(file="regressioncoefficients_lesionvsMyc.pdf", width=10, height=8)
+coefplot2(mod10.6)
+dev.off()
+
+effect(mod = mod10.Colin, "Mycorrhiza")
+```
+```{r Model based figure myc VS lesion in soil}
+mod10.Colin.NM <- glmmadmb(Lesion ~ scale(mean_rootsize) + species + 
+                          scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + (1 | pop)+
+                          Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                          Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                          Mycorrhiza:scale(Agg_stability), 
+                        data = fulldata,family = "nbinom1")
+
+mod1.4 <- glmmadmb(Mycorrhiza ~ scale(mean_rootsize) + species + 
+                          scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + (1 | pop)+
+                          Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                          Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                          Mycorrhiza:scale(Agg_stability), 
+                        data = fulldata,family = "nbinom1")
+
+X1<-residuals(mod10.Colin.NM)
+X2<-residuals(mod1.4)
+df<-as.data.frame(cbind(X1,X2))
+PartialResidMycLesion<-ggplot(df, aes(X1,X2))+geom_smooth(method="lm")+geom_point()+
+  theme_simple()+
+  ggtitle("Added Variable plot of\nMycorrhiza effect on Lesion")+
+  labs(x="Residuals of Mycorrhiza", y="Residuals of Lesions")+
+  theme_bw()+
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 12))
+PartialResidMycLesion
+ggsave(file="PartialResidMycLesion.eps", plot=PartialResidMycLesion, width=10, height=8)
+
+```
+```{r Model based figure root size VS lesion in soil}
+hist(fulldata$mean_rootsize)
+lmod10.meanrs <- lm(mean_rootsize ~ Mycorrhiza + species + 
+                          scale(pH)+ scale(Agg_stability) + Nutrient_PC1,data = fulldata)
+plot(lmod10.meanrs)
+#athough its not "normal" the residuals and the heteroskedasticity is good so ill keep it
+
+mod10.noRS <- glmmadmb(Lesion ~ Mycorrhiza + species + 
+                          scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + (1 | pop)+
+                          Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                          Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                          Mycorrhiza:scale(Agg_stability), 
+                        data = fulldata,family = "nbinom1")
+
+mod10.meanrs <- lmer(mean_rootsize ~ Mycorrhiza + species + 
+                          scale(pH)+ scale(Agg_stability) + Nutrient_PC1 + (1 | pop)+
+                          Mycorrhiza:Nutrient_PC1 + Mycorrhiza:scale(mean_rootsize) +
+                          Mycorrhiza:species + Mycorrhiza:scale(pH) +
+                          Mycorrhiza:scale(Agg_stability), 
+                        data = fulldata)
+X1<-residuals(mod10.noRS)
+X2<-residuals(mod10.meanrs)
+df<-as.data.frame(cbind(X1,X2))
+PartialResidRootSizeLesion<-ggplot(df, aes(X1,X2))+geom_smooth(method="lm")+geom_point()+
+  theme_simple()+
+  ggtitle("Added Variable plot of\nRoot Size effect on Lesion")+
+  labs(x="Residuals of Root Size", y="Residuals of Lesions")+
+  theme_bw()+
+  theme(legend.title=element_blank(),plot.title = element_text(hjust = 0.5,face="bold", size=20), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),panel.background = element_blank(),axis.line = element_line(colour = "black"),axis.title.x = element_text(size=18),axis.title.y = element_text(size=18),axis.text.y = element_text(size=10),panel.border = element_rect(colour = "black"),strip.background = element_rect(colour = "black",fill="white"),strip.text.x = element_text(size = 12))
+PartialResidRootSizeLesion
+ggsave(file="PartialResidRootSizeLesion.eps", plot=PartialResidRootSizeLesion, width=10, height=8)
+
+```
+
+
+
+```{r soil myc}
 # model myc 
 mod2 <- glmmadmb(binmycorrF ~ scale(mean_rootsize) * species + scale(pH) + scale(Agg_stability) + scale(N_percent) + scale(C_percent) + (1 | pop) , data = fulldata,family = "binomial")
-summary(mod2)
-mod2.dredge <- dredge(mod2)
-mod2.dredgegood <- subset(mod2.dredge,mod2.dredge$delta<=7)
+
+mod1.4<-glmmadmb(Mycorrhiza ~ scale(mean_rootsize) * species + scale(pH) + scale(Agg_stability) + scale(N_percent) + scale(C_percent) + (1 | pop), data = fulldata,family="nbinom1")
+
+mod2.1<-glmmadmb(Mycorrhiza ~ scale(mean_rootsize) * species + scale(pH) + scale(Agg_stability) + scale(N_percent) + scale(C_percent) + (1 | pop), data = fulldata,family="poisson")
+
+ICtab(mod2, mod1.4, mod2.1, type='AICc')
+
+summary(mod1.4)
+
+
+
+var<-fulldata[,c(5,6,8,9,21)]
+covar_cor = cor(var)
+corrplot.mixed(covar_cor, upper = "ellipse", lower = "number")
+sparrow_PCA = dudi.pca(covariates)
+2
+
+mod1.4.dredge <- dredge(mod1.4)
+mod1.4.dredgegood <- subset(mod1.4.dredge,mod1.4.dredge$delta<=7)
+mod1.4.avg<-model.avg(mod1.4.dredgegood)
+summary(mod1.4.avg)
+
+
+```
+
+### Does root size influence how myc protect from lesion?
+```{r rootsize}
+Root_size$mean_rootsize <- rowSums(Root_size[,2:11])/length(Root_size[,2:11])
+names(Root_size)[1]<-"indiv2"
+
+fdata_rs <- merge(fdata, Root_size, by=c("indiv2","location","pop","species"))
+
+## Mycorrhiza model (NOTE: No loc*species because not all species present in all populations)
+base.Les<-glmmadmb(Lesion~ Mycorrhiza * species * location * mean_rootsize +(1|pop),data=fdata_rs,family = "binomial", extra.args="-ndi 30000")
+
+Les2<-glmmadmb(Lesion ~ Mycorrhiza * species * location * mean_rootsize +(1|pop)-Mycorrhiza:species:location:mean_rootsize,data=fdata_rs,family = "binomial", extra.args="-ndi 30000")
+
+anova(base.Les,Les2)
+
+Les3a<-glmmadmb(Lesion~Mycorrhiza * species * location * mean_rootsize +(1|pop) -species:mean_rootsize,data=fdata_rs,family = "binomial", extra.args="-ndi 30000")
+Les3b<-glmmadmb(Lesion~Mycorrhiza * species * location * mean_rootsize +(1|pop) -species:mean_rootsize:location,data=fdata_rs,family = "binomial", extra.args="-ndi 30000")
+Les3c<-glmmadmb(Lesion~Mycorrhiza * species * location * mean_rootsize +(1|pop) -Mycorrhiza:mean_rootsize,data=fdata_rs,family = "binomial", extra.args="-ndi 30000")
+anova(base.Les,Les3a) # TEST species*rootsize 
+anova(base.Les,Les3b) # TEST Myc*location*rootsize 
+anova(base.Les,Les3c) # TEST Myc*rootsize
+```
+
+Correlation model
+
+```{r}
+# calculating the r
+indivCODE <- as.character(unique(fdata_rs$indiv2))
+dfcorr <-data.frame(indiv2=c(0),r=c(0))
+for (i in 1:length(indivCODE)){
+  dat1<-NULL
+  dat1<-fdata_rs[fdata_rs$indiv2==indivCODE[i],]
+  dfcorr[i,1] <- indivCODE[i]
+  dfcorr[i,2] <- cor(as.numeric(dat1$Mycorrhiza),as.numeric(dat1$Lesion))
+}
+dfcorr %>% drop_na()->dfcorr
+
+fdata_rs.corr <- merge(dfcorr, Root_size, by="indiv2")
+shapiro.test(fdata_rs.corr$r)
+
+fdata_rs.corr$r.t<-fdata_rs.corr$r+1
+CorrLM<-lm(r.t~ species * location * mean_rootsize,data=fdata_rs.corr)
+
+bc<-boxcox(CorrLM, lambda = seq(-2, 2, 0.1))
+lambda <- bc$x[which.max(bc$y)]
+fdata_rs.corr <- cbind(fdata_rs.corr, ((fdata_rs.corr$r.t^lambda)-1)/lambda)
+names(fdata_rs.corr)[length(fdata_rs.corr)] <- "Yprime"
+shapiro.test(fdata_rs.corr$Yprime)
+hist(fdata_rs.corr$Yprime)
+
+CorrLMERBC<-lmer(Yprime~ species + location + mean_rootsize + 
+                   location:species +
+                   (1|pop),
+                 data=fdata_rs.corr)
+pr<-resid(CorrLMERBC, type='pearson')
+n<-nrow(fdata_rs.corr)
+c<-length(coef(CorrLMERBC))
+(Disp<-sum(pr^2)/(n-c))
+
+plot(effect("location:mean_rootsize", CorrLMERBC))
+plot(effect("mean_rootsize", CorrLMERBC))
+
+summary(CorrLMERBC)
+CorrLMER.dredge<-dredge(CorrLMERBC)
+r.squaredGLMM(CorrLMERBC)
 ```
 
 # Molecular data Analysis
