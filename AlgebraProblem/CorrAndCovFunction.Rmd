@@ -337,9 +337,9 @@ Bcor(dataGRIn)
 Icor(dataGRIn)
 
 dataGROut <-filter(fdata,species== "GR" & location== "O")[,c(1,6,7,8)]
-colnames(dataGROu)<-c("ind","c1","c2","pop")
-Bcor(dataGROu)
-Icor(dataGROu)
+colnames(dataGROut)<-c("ind","c1","c2","pop")
+Bcor(dataGROut)
+Icor(dataGROut)
 
 dataMRIn <-filter(fdata,species== "MR" & location== "I")[,c(1,6,7,8)]
 colnames(dataMRIn)<-c("ind","c1","c2","pop")
@@ -351,10 +351,16 @@ colnames(dataMROut)<-c("ind","c1","c2","pop")
 Bcor(dataMROut)
 Icor(dataMROut)
 
-dataSC <-filter(fdata,species== "SC")[,c(1,6,7,8)]
-colnames(dataSC)<-c("ind","c1","c2","pop")
-Bcor(dataSC)
-Icor(dataSC)
+dataSCIn <-filter(fdata,species== "SC" & location== "I")[,c(1,6,7,8)]
+colnames(dataSCIn)<-c("ind","c1","c2","pop")
+Bcor(dataSCIn)
+Icor(dataSCIn)
+
+dataSCOut <-filter(fdata,species== "SC" & location== "O")[,c(1,6,7,8)]
+colnames(dataSCOut)<-c("ind","c1","c2","pop")
+Bcor(dataSCOut)
+Icor(dataSCOut)
+
 ```
 
 
