@@ -1,0 +1,360 @@
+---
+title: "Functions relating to the Colonization model"
+output: 
+  html_notebook: 
+    highlight: tango
+    theme: cerulean
+    toc: yes
+---
+#Load packages
+
+```{r Load_packages and functions, message=FALSE, warning=FALSE}
+library(tidyverse)
+```
+# Model 
+
+According to the data simulation function:
+
+A = p1 p2 a
+B = p1 (1-p2 a)
+C = (1-p1) p2
+D = (1-p1) (1-p2)
+
+Alpha reduces the colonization of pathogen ONLY when mycorrhiza is present. The interaction also ONLY has an effect on the pathogen colonization, not the mycorrhizal colonization. 
+
+The nice thing about this model is that it inhibits the pathogen at every point that there is a mycorrhiza. 
+
+The problem with this model is that the proportion of area colonized with mycorrhiza does not have an effect on how the pathogens will colonize the non-mycorrhizal points. If the effect is systemic, this will be something we see. 
+  
+  
+# Data Simulation 
+
+```{r Data simulation}
+GMsim<-function(NXsec=100,NPlants=1000,Pm=0.5,Pp=0.2,Pc=0.5){
+  c<-0
+  Root<-data.frame(ind=rep(NA,NPlants*NXsec),c1=rep(NA,NPlants*NXsec),c2=rep(NA,NPlants*NXsec)) # Data for saving output
+  for(i in 1:NPlants){
+    tempMyc<-sample(1:0,NXsec,replace=T,prob=c(Pm,1-Pm)) # Generate Myc colonization
+    tempPath<-rep(NA,NXsec) # Empty vector of pathogen infection
+    
+    # Simulate root cross-sections. 
+    if(length(tempMyc[tempMyc==0])>0){
+      tempPath[tempMyc==0]<-sample(1:0,length(tempPath[tempMyc==0]),replace=T,prob=c(Pp,1-Pp))  
+    }
+    if(length(tempPath[tempMyc==1])>0){
+      tempPath[tempMyc==1]<-sample(1:0,length(tempPath[tempMyc==1]),replace=T,prob=c(Pp*Pc,1-Pp*Pc))
+    }
+    
+    # Add the simulated co-occurence to the simulated data
+    Root[(c+1):(c+NXsec),1]<-rep(i,NXsec)
+    Root[(c+1):(c+NXsec),2]<-tempMyc
+    Root[(c+1):(c+NXsec),3]<-tempPath
+    
+    #counter
+    c<-c+NXsec
+    
+    # Clear temporary vectors to avoid errors in future iterations
+    tempMyc<-tempPath<-NA
+  }
+  return(Root) ## Don't forget to return this to the user!
+}
+
+
+Toy<-GMsim()
+```
+
+
+# Function for Var/covar and correlation 
+
+data -- the dataset with rows representing each cross-section and the following columns:
+
+ind -- the column with the labels for individuals; there should be > 1 location per individual
+
+c1 -- the column of presence/absence (1:0) for Mycorrhiza
+
+c2 -- the column of presence/absence (1:0) for Pathogen
+
+
+
+```{r Var/covar and  corr coeff Function }
+Bcor<-function(x=NA,ind=ind,c1=c1,c2=c2){
+  # Check if user wants covariance matrix or correlation coefficient
+  
+  # Calculate the frequency of each possible outcome
+A<- length((dplyr::filter(x, c1 == 1 & c2 == 1))$ind)
+B<- length((dplyr::filter(x, c1 == 1 & c2 == 0))$ind)
+C<- length((dplyr::filter(x, c1 == 0 & c2 == 1))$ind)
+D<- length((dplyr::filter(x, c1 == 0 & c2 == 0))$ind)
+  
+  # Calculate variances, covariance and correlation
+infoDF <- data.frame(VARIANCE1=NA,VARIANCE2=NA,COVARIANCE=NA,CORRELATION=NA)
+infoDF$VARIANCE1[1] <- (A+B)*(1-(A+B))
+infoDF$VARIANCE2[1] <- (A+C)*(1-(A+C))
+infoDF$COVARIANCE[1]<- A-(A+B)*(A+C)
+infoDF$CORRELATION[1] <- infoDF$COVARIANCE[1]/(sqrt(infoDF$VARIANCE1[1]*infoDF$VARIANCE2[1]))
+
+    return(print(infoDF))
+}
+```
+
+
+
+## Test
+
+```{r}
+Toy<-GMsim(Pm=0.6,Pp=0.2,Pc=0.3)
+Bcor(x = Toy)
+
+```
+
+
+# Function for p1, p2 and a
+
+```{r p1 p2 a Function }
+
+
+Icor <- function(x=NA,ind=ind,c1=c1,c2=c2){
+  # Conditional probabilities
+  ## A through B can be estimated from the data
+  ## Use these equations to try to solve for p1, p2 & a
+  ## For example, B-C or C-B will isolate p1 and p2 only
+A<- length((dplyr::filter(x, c1 == 1 & c2 == 1))$ind)
+B<- length((dplyr::filter(x, c1 == 1 & c2 == 0))$ind)
+C<- length((dplyr::filter(x, c1 == 0 & c2 == 1))$ind)
+D<- length((dplyr::filter(x, c1 == 0 & c2 == 0))$ind)
+
+  # Calculate p1,p2 and a
+  # note that there are two versions of p1 and p2 because of the quadratic equation
+  # choose the one that has a positive value. 
+
+infoDF <- data.frame(MycP=NA,PathP=NA, alpha=NA)
+
+  infoDF$MycP[1]<- 1-((C+D)/sum(A,B,C,D))
+  infoDF$PathP[1]<- (C/sum(A,B,C,D))/(1-p1)
+  infoDF$alpha[1]<- (A/sum(A,B,C,D))/(p1*p2) 
+
+  return(print(infoDF))
+}
+
+
+
+```
+
+## Test
+
+```{r}
+Toy<-GMsim(Pm=0.6,Pp=0.2,Pc=0.3)
+Icor(x = Toy)
+```
+
+
+
+
+#Our data
+##Load data
+```{r Introduce co-occurence dataset, message=FALSE, warning=FALSE, echo=FALSE}
+mdata <- read.csv("./Assessing_Oct_20.csv",stringsAsFactors=F)
+indiv <- mdata$CODE[!mdata$CODE==""]
+tdata <- mdata[grep("[0-9]+",mdata$Cross),]
+nrow(tdata)/length(indiv)
+
+# This is not the same because some individuals just had the totals not the cooccurence data
+## THE COMMENT IS NOT CLEAR, EXPLAIN...
+indiv2 <- tdata$CODE[!tdata$CODE==""]
+nrow(tdata)/length(indiv2)
+indiv2 <- data.frame(indiv2)
+indiv2 <- mefa:::rep.data.frame(indiv2,each=100)
+fdata <- cbind(indiv2,tdata)
+fdata <- fdata[,-c(2,3,4,9,14,17,18)]
+
+# Cleaning up the occurence data
+## CLEANING UP HOW?
+fdata[is.na(fdata)] <- 0
+fdata$Lesion<-rowSums(fdata[,2:4])
+fdata[fdata$Lesion>1,]
+fdata$Mycorrhiza<-rowSums(fdata[,6:8])
+fdata[fdata$Mycorrhiza>1,]
+fdata <- fdata[,-c(2:4,6:8)]
+
+#### Checking data for problems ####
+
+summary(fdata)
+fdata$None.Path <- as.integer(fdata$None.Path)
+fdata$None.Myc <- as.integer(fdata$None.Myc)
+fdata[is.na(fdata)] <- 0 
+
+
+sherb <- fdata$Herbivory+fdata$None.Herb
+fdata[sherb!=1,]
+fdata[sherb!=1,"None.Herb"]<-1
+
+# Are all the sums equal to 100 for herb? 
+dframeHerb <- data.frame(counter=NA, Indiv2=NA,Sum=NA)
+c <- 1
+for (i in unique(fdata$indiv2)){
+  dframeHerb[c,] <- NA
+  subdata <- fdata[fdata$indiv2==i,]
+  dframeHerb$counter[c] <- c
+  dframeHerb$Indiv2[c] <- i
+  dframeHerb$Sum[c] <- sum(subdata[,"Herbivory"]+subdata[,"None.Herb"])
+  subdata <- NA
+  c <- c + 1
+}
+dframeHerb[dframeHerb$Sum!=100,]
+
+
+# Are all the sums equal to 100 for Mycorrhiza? 
+dframeMyc <- data.frame(counter=NA, Indiv2=NA,Sum=NA)
+c <- 1
+for (i in unique(fdata$indiv2)){
+  dframeMyc[c,] <- NA
+  subdata <- fdata[fdata$indiv2==i,]
+  dframeMyc$counter[c] <- c
+  dframeMyc$Indiv2[c] <- i
+  dframeMyc$Sum[c] <- sum(subdata[,"Mycorrhiza"]+subdata[,"None.Myc"])
+  subdata <- NA
+  c <- c + 1
+}
+dframeMyc[dframeMyc$Sum!=100,]
+
+
+# Are all the sums equal to 100 for Lesions? 
+dframeLesion <- data.frame(counter=NA, Indiv2=NA,Sum=NA)
+c <- 1
+for (i in unique(fdata$indiv2)){
+  dframeLesion[c,] <- NA
+  subdata <- fdata[fdata$indiv2==i,]
+  dframeLesion$counter[c] <- c
+  dframeLesion$Indiv2[c] <- i
+  dframeLesion$Sum[c] <- sum(subdata[,"Lesion"]+subdata[,"None.Path"])
+  subdata <- NA
+  c <- c + 1
+}
+dframeLesion[dframeLesion$Sum!=100,]
+
+
+# Separating "Individual" into: pop,location,species columns 
+fdata$pop <- gsub("^([0-9]+)[I,O][A-Z]+.*","\\1",fdata$indiv)
+fdata$location <- gsub("^[0-9]+([I,O])[A-Z]+.*","\\1",fdata$indiv)
+fdata$species <- sub("^[0-9]+[I,O]([A-Z]+).*","\\1",fdata$indiv)
+fdata$location <- as.factor(fdata$location)
+fdata$species <- as.factor(fdata$species)
+fdata$pop <- as.factor(fdata$pop)
+fdata$indiv2 <- as.character(fdata$indiv2)
+summary(fdata)
+fdata %>% drop_na()->fdata
+
+fdata$None.Myc <- as.factor(fdata$None.Myc)
+fdata$Herbivory <- as.factor(fdata$Herbivory)
+fdata$Mycorrhiza <- as.factor(fdata$Mycorrhiza)
+fdata$Lesion <- as.factor(fdata$Lesion)
+fdata$None.Herb <- as.factor(fdata$None.Herb)
+fdata$None.Path <- as.factor(fdata$None.Path)
+summary(fdata)
+```
+
+```{r Species specific}
+levels(fdata$species)
+dataAH <-filter(fdata,species== "AH")[,c(1,6,7,8,9)]
+colnames(dataAH)<-c("ind","c1","c2","pop","location")
+Bcor(dataAH)
+Icor(dataAH)
+
+dataCL <-filter(fdata,species== "CL")[,c(1,6,7,8,9)]
+colnames(dataCL)<-c("ind","c1","c2","pop","location")
+Bcor(dataCL)
+Icor(dataCL)
+
+dataGA <-filter(fdata,species== "GA")[,c(1,6,7,8,9)]
+colnames(dataGA)<-c("ind","c1","c2","pop","location")
+Bcor(dataGA)
+Icor(dataGA)
+
+dataGR <-filter(fdata,species== "GR")[,c(1,6,7,8,9)]
+colnames(dataGR)<-c("ind","c1","c2","pop","location")
+Bcor(dataGR)
+Icor(dataGR)
+
+dataMR <-filter(fdata,species== "MR")[,c(1,6,7,8,9)]
+colnames(dataMR)<-c("ind","c1","c2","pop","location")
+Bcor(dataMR)
+Icor(dataMR)
+
+dataSC <-filter(fdata,species== "SC")[,c(1,6,7,8,9)]
+colnames(dataSC)<-c("ind","c1","c2","pop","location")
+Bcor(dataSC)
+Icor(dataSC)
+```
+
+```{r Location specific}
+dataInside <-filter(fdata,location== "I")[,c(1,6,7,8,10)]
+colnames(dataInside)<-c("ind","c1","c2","pop","species")
+Bcor(dataInside)
+Icor(dataInside)
+
+dataOutside <-filter(fdata,location== "O")[,c(1,6,7,8,10)]
+colnames(dataOutside)<-c("ind","c1","c2","pop","species")
+Bcor(dataOutside)
+Icor(dataOutside)
+```
+
+
+```{r Species and location specific}
+
+dataAHIn <-filter(fdata,species== "AH" & location== "I")[,c(1,6,7,8)]
+colnames(dataAHIn)<-c("ind","c1","c2","pop")
+Bcor(dataAHIn)
+Icor(dataAHIn)
+
+dataAHOut <-filter(fdata,species== "AH" & location== "O")[,c(1,6,7,8)]
+colnames(dataAHOut)<-c("ind","c1","c2","pop")
+Bcor(dataAHOut)
+Icor(dataAHOut)
+
+dataCLIn <-filter(fdata,species== "CL" & location== "I")[,c(1,6,7,8)]
+colnames(dataCLIn)<-c("ind","c1","c2","pop")
+Bcor(dataCLIn)
+Icor(dataCLIn)
+
+dataCLOut <-filter(fdata,species== "CL" & location== "O")[,c(1,6,7,8)]
+colnames(dataCLOut)<-c("ind","c1","c2","pop")
+Bcor(dataCLOut)
+Icor(dataCLOut)
+
+dataGAIn <-filter(fdata,species== "GA"& location== "I")[,c(1,6,7,8)]
+colnames(dataGAIn)<-c("ind","c1","c2","pop")
+Bcor(dataGAIn)
+Icor(dataGAIn)
+
+dataGAOut <-filter(fdata,species== "GA"& location== "O")[,c(1,6,7,8)]
+colnames(dataGAOut)<-c("ind","c1","c2","pop")
+Bcor(dataGAOut)
+Icor(dataGAOut)
+
+dataGRIn <-filter(fdata,species== "GR" & location== "I")[,c(1,6,7,8)]
+colnames(dataGRIn)<-c("ind","c1","c2","pop")
+Bcor(dataGRIn)
+Icor(dataGRIn)
+
+dataGROut <-filter(fdata,species== "GR" & location== "O")[,c(1,6,7,8)]
+colnames(dataGROu)<-c("ind","c1","c2","pop")
+Bcor(dataGROu)
+Icor(dataGROu)
+
+dataMRIn <-filter(fdata,species== "MR" & location== "I")[,c(1,6,7,8)]
+colnames(dataMRIn)<-c("ind","c1","c2","pop")
+Bcor(dataMRIn)
+Icor(dataMRIn)
+
+dataMROut <-filter(fdata,species== "MR" & location== "O")[,c(1,6,7,8)]
+colnames(dataMROut)<-c("ind","c1","c2","pop")
+Bcor(dataMROut)
+Icor(dataMROut)
+
+dataSC <-filter(fdata,species== "SC")[,c(1,6,7,8)]
+colnames(dataSC)<-c("ind","c1","c2","pop")
+Bcor(dataSC)
+Icor(dataSC)
+```
+
+
